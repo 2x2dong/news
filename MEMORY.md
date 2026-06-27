@@ -67,3 +67,10 @@
 - **배포 URL**: `https://news-phi-cyan.vercel.app`
 - **검증**: 배포 URL에서 Playwright로 제목, 지표, 기사 7건, 관리자/보기 전용 전환, 모바일 가로 넘침 없음을 확인했다.
 - **주의**: GitHub 자동 연결은 Vercel 계정의 GitHub Login Connection 추가가 필요하다고 표시되었다. 현재는 CLI 배포로 운영 URL이 생성된 상태다.
+
+### 2026-06-27 Google Sheets DB 연결
+- **정한 것 / 한 것**: `뉴스 대시보드 DB` Google Sheet와 Apps Script 웹앱을 생성하고, 대시보드의 저장/불러오기 흐름을 연결했다.
+- **시트 URL**: `https://docs.google.com/spreadsheets/d/1t3FZq0Wjzu6_Bb9Kg4ZIXwbCXV73G-S_DQIyRTQZNuU/edit`
+- **웹앱 URL**: `https://script.google.com/macros/s/AKfycbyEW3w2wIXDkrDMTEca8LqgV-MPNe26_ae2qtmVAqCvxZBTVFr3zXeeqTAg5fd1s7Qr/exec`
+- **검증**: `items` 7건, `keywords` 7건, `programs` 1건, `matches` 7건, `fetch_runs` 1건이 Google Sheets에 저장되고 다시 읽히는 것을 확인했다.
+- **주의**: 쓰기 작업은 Apps Script 내부의 관리자 토큰으로 보호하며, 토큰은 저장소에 커밋하지 않는다.

@@ -25,6 +25,7 @@ const SHEET_SCHEMA = {
 };
 
 function doGet(event) {
+  ensureSheets_();
   const action = event.parameter.action || "snapshot";
   if (action === "snapshot") return jsonResponse_(readSnapshot_());
   return jsonResponse_({ ok: false, error: "unknown action" }, 400);
@@ -34,6 +35,11 @@ function doPost(event) {
   ensureSheets_();
   const body = parseBody_(event);
   const action = body.action || "";
+
+  if (action === "bootstrapAdminToken") {
+    return jsonResponse_(bootstrapAdminToken_(body.token));
+  }
+
   const actor = getActor_(body);
 
   if (!actor.canWrite) {
@@ -61,6 +67,29 @@ function doPost(event) {
 function createDailyTriggers() {
   ScriptApp.newTrigger("scheduledFetchMorning").timeBased().everyDays(1).atHour(9).create();
   ScriptApp.newTrigger("scheduledFetchEvening").timeBased().everyDays(1).atHour(18).create();
+}
+
+function setupSheets() {
+  ensureSheets_();
+  return readSnapshot_();
+}
+
+function setAdminToken(token) {
+  if (!token) throw new Error("token is required");
+  PropertiesService.getScriptProperties().setProperty("ADMIN_TOKEN", String(token));
+  return { ok: true, updatedAt: new Date().toISOString() };
+}
+
+function bootstrapAdminToken_(token) {
+  const properties = PropertiesService.getScriptProperties();
+  if (properties.getProperty("ADMIN_TOKEN")) {
+    return { ok: false, error: "admin token already exists" };
+  }
+  if (!token || String(token).length < 24) {
+    return { ok: false, error: "token must be at least 24 characters" };
+  }
+  properties.setProperty("ADMIN_TOKEN", String(token));
+  return { ok: true, action: "bootstrapAdminToken", updatedAt: new Date().toISOString() };
 }
 
 function scheduledFetchMorning() {

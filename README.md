@@ -13,6 +13,12 @@ Vercel에 화면을 올리고, Google Sheets를 DB처럼 쓰는 저비용 운영
 
 - [https://news-phi-cyan.vercel.app](https://news-phi-cyan.vercel.app)
 
+## Google Sheets DB
+
+- [뉴스 대시보드 DB](https://docs.google.com/spreadsheets/d/1t3FZq0Wjzu6_Bb9Kg4ZIXwbCXV73G-S_DQIyRTQZNuU/edit)
+- Apps Script 웹앱을 통해 대시보드에서 `items`, `keywords`, `programs`, `matches`, `fetch_runs` 탭을 읽고 씁니다.
+- 쓰기 작업은 관리자 토큰이 필요하며, 토큰은 저장소에 커밋하지 않습니다.
+
 ## 현재 구현
 
 - 시티트리클럽 검증 기사 7건 기본 데이터
@@ -27,6 +33,7 @@ Vercel에 화면을 올리고, Google Sheets를 DB처럼 쓰는 저비용 운영
 - 평가용 요약 문장 복사
 - 일반 JSON 내보내기
 - Google Sheets 탭 구조에 맞춘 JSON 내보내기
+- Google Sheets 저장/불러오기
 - Google Apps Script 연결 코드
 - Vercel 정적 배포 설정
 

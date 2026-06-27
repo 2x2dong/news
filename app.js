@@ -3,6 +3,7 @@ const ARTICLE_STORAGE_KEY = "news-dashboard:articles:v5";
 const KEYWORD_STORAGE_KEY = "news-dashboard:keywords:v5";
 const PLAN_STORAGE_KEY = "news-dashboard:plans:v5";
 const ROLE_STORAGE_KEY = "news-dashboard:role:v5";
+const ADMIN_TOKEN_STORAGE_KEY = "news-dashboard:admin-token:v5";
 const COLLECTION_START = "2026-01-01";
 
 const APP_CONFIG = {
@@ -265,8 +266,10 @@ function bindElements() {
     "collectionSchedule",
     "sheetLink",
     "adminPanel",
+    "loadSheetsButton",
     "syncSheetsButton",
     "exportSheetsButton",
+    "adminTokenInput",
     "planForm",
     "planYear",
     "planTitle",
@@ -326,11 +329,15 @@ function bindEvents() {
 
   els.exportJsonButton.addEventListener("click", exportJson);
   els.exportSheetsButton.addEventListener("click", exportSheetsJson);
+  els.loadSheetsButton.addEventListener("click", loadSheetsSnapshot);
   els.syncSheetsButton.addEventListener("click", syncSheets);
   els.copyReportButton.addEventListener("click", copyReport);
   els.articleForm.addEventListener("submit", addArticle);
   els.planForm.addEventListener("submit", importPlan);
   els.keywordForm.addEventListener("submit", addKeyword);
+  els.adminTokenInput.addEventListener("input", () => {
+    localStorage.setItem(ADMIN_TOKEN_STORAGE_KEY, els.adminTokenInput.value.trim());
+  });
 
   els.keywordList.addEventListener("click", (event) => {
     const button = event.target.closest("[data-keyword-toggle]");
@@ -365,6 +372,7 @@ function renderIntegrationStatus() {
   const schedule = (APP_CONFIG.collectionTimes || []).join(", ") || "09:00, 18:00";
 
   els.syncStatus.textContent = hasEndpoint ? "Google Sheets 연결 준비" : "로컬 검토 모드";
+  els.adminTokenInput.value = localStorage.getItem(ADMIN_TOKEN_STORAGE_KEY) || "";
   els.collectionSchedule.textContent = schedule;
   els.sheetLink.innerHTML = hasSheet
     ? `<a href="${escapeAttr(APP_CONFIG.googleSheetUrl)}" target="_blank" rel="noreferrer">Google Sheets 열기</a>`
@@ -813,7 +821,7 @@ async function syncSheets() {
     const response = await fetch(APP_CONFIG.appsScriptEndpoint, {
       method: "POST",
       headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify({ action: "snapshot", payload })
+      body: JSON.stringify({ action: "snapshot", token: getAdminToken(), payload })
     });
     const result = await response.json();
     if (!response.ok || !result.ok) throw new Error(result.error || "Google Sheets sync failed");
@@ -821,6 +829,25 @@ async function syncSheets() {
   } catch (error) {
     downloadJson(payload, "google-sheets-payload.json");
     showToast("구글시트 저장 실패, JSON으로 저장했습니다.");
+  }
+}
+
+async function loadSheetsSnapshot() {
+  if (!APP_CONFIG.appsScriptEndpoint) {
+    showToast("구글시트 연결 주소가 없습니다.");
+    return;
+  }
+
+  try {
+    const url = new URL(APP_CONFIG.appsScriptEndpoint);
+    url.searchParams.set("action", "snapshot");
+    const response = await fetch(url.toString());
+    const result = await response.json();
+    if (!result.ok) throw new Error(result.error || "Google Sheets load failed");
+    applySheetsSnapshot(result.sheets || {});
+    showToast("Google Sheets에서 불러왔습니다.");
+  } catch (error) {
+    showToast("구글시트 불러오기에 실패했습니다.");
   }
 }
 
@@ -914,6 +941,82 @@ function buildSheetsPayload() {
       }
     ]
   };
+}
+
+function applySheetsSnapshot(sheets) {
+  const items = Array.isArray(sheets.items) ? sheets.items : [];
+  const keywords = Array.isArray(sheets.keywords) ? sheets.keywords : [];
+  const plans = Array.isArray(sheets.plans) ? sheets.plans : [];
+
+  if (items.length) {
+    state.articles = items.map((item) => ({
+      id: item.item_id,
+      title: item.title,
+      source: item.source_name,
+      sourceType: item.source_type || "media",
+      publishedAt: normalizeDateValue(item.published_at),
+      url: item.url,
+      summary: item.snippet || item.ai_summary || "Google Sheets에서 불러온 항목입니다.",
+      matchedKeywords: splitList(item.matched_keyword),
+      reviewStatus: item.review_status || "needs-review",
+      relevanceBasis: item.ai_basis || "검토 필요",
+      representative: parseBoolean(item.representative),
+      includeInCount: parseBoolean(item.include_in_press_count),
+      duplicateGroup: "",
+      matchedProgram: "",
+      note: item.ai_basis || ""
+    }));
+  }
+
+  if (keywords.length) {
+    state.keywords = keywords.map((keyword) => ({
+      id: keyword.keyword_id || makeId("kw"),
+      keyword: keyword.keyword,
+      type: keyword.type || "캠페인명",
+      source: keyword.source || "Google Sheets",
+      active: parseBoolean(keyword.active),
+      notes: keyword.notes || ""
+    }));
+  }
+
+  if (plans.length) {
+    state.plans = plans.map((plan) => ({
+      id: `plan-${plan.year}-${plan.imported_at || Date.now()}`,
+      year: plan.year,
+      title: plan.title,
+      sourceUrl: plan.source_url,
+      importedAt: plan.imported_at,
+      rawTextLength: plan.raw_text_length,
+      rawTextPreview: ""
+    }));
+  }
+
+  saveArticles();
+  saveKeywords();
+  savePlans();
+  render();
+}
+
+function getAdminToken() {
+  return (els.adminTokenInput && els.adminTokenInput.value.trim()) || localStorage.getItem(ADMIN_TOKEN_STORAGE_KEY) || "";
+}
+
+function splitList(value) {
+  return String(value || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function parseBoolean(value) {
+  if (typeof value === "boolean") return value;
+  return ["true", "TRUE", "1", "yes", "Y", "활성"].includes(String(value).trim());
+}
+
+function normalizeDateValue(value) {
+  if (!value) return "";
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  return String(value).slice(0, 10);
 }
 
 function downloadJson(payload, filename) {
