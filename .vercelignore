@@ -1,0 +1,10 @@
+.git/
+.vercel/
+apps-script/
+data/
+docs/
+decks/
+presentation-assets/
+*.md
+presentation-input.json
+workshop.json

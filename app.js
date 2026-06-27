@@ -231,6 +231,7 @@ document.addEventListener("DOMContentLoaded", () => {
   bindElements();
   bindEvents();
   render();
+  if (APP_CONFIG.appsScriptEndpoint) loadSheetsSnapshot({ silent: true });
 });
 
 function bindElements() {
@@ -684,7 +685,7 @@ function addArticle(event) {
   showToast("검토 목록에 추가했습니다.");
 }
 
-function importPlan(event) {
+async function importPlan(event) {
   event.preventDefault();
   if (state.role !== "admin") return;
 
@@ -695,6 +696,51 @@ function importPlan(event) {
 
   if (!year || !title || (!sourceUrl && !rawText)) {
     showToast("연도, 제목, 링크 또는 본문을 확인해주세요.");
+    return;
+  }
+
+  if (APP_CONFIG.appsScriptEndpoint && getAdminToken()) {
+    try {
+      showToast("사업계획서를 읽고 기사 후보를 찾고 있습니다.");
+      const response = await fetch(APP_CONFIG.appsScriptEndpoint, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify({
+          action: "importPlan",
+          token: getAdminToken(),
+          year,
+          title,
+          sourceUrl,
+          rawText
+        })
+      });
+      const result = await response.json();
+      if (!result.ok) throw new Error(result.error || "사업계획서 업로드 실패");
+      applySheetsSnapshot(result.sheets || {});
+      els.planText.value = "";
+      els.planImportResult.innerHTML = `
+        <span class="chip">업로드 완료</span>
+        ${escapeHtml(year)} · ${escapeHtml(title)} · 추출 검색어 ${escapeHtml(
+          result.keywordsExtracted
+        )}개 · 새 검색어 ${escapeHtml(result.keywordsAdded)}개 · 기사 후보 ${escapeHtml(
+          result.itemsFound
+        )}건 확인 / ${escapeHtml(result.itemsAdded)}건 추가
+      `;
+      showToast("사업계획서와 기사 후보를 저장했습니다.");
+      return;
+    } catch (error) {
+      if (!rawText) {
+        els.planImportResult.textContent = "Google Docs 링크를 읽지 못했습니다. 문서 권한을 확인하거나 본문을 붙여넣어 주세요.";
+        showToast("사업계획서 업로드에 실패했습니다.");
+        return;
+      }
+      showToast("DB 업로드 실패, 로컬에서 검색어만 생성합니다.");
+    }
+  }
+
+  if (sourceUrl && !rawText) {
+    els.planImportResult.textContent = "Google Docs 링크만으로 업로드하려면 관리자 토큰과 Google Sheets 연결이 필요합니다.";
+    showToast("본문을 붙여넣거나 관리자 토큰을 입력해주세요.");
     return;
   }
 
@@ -718,7 +764,7 @@ function importPlan(event) {
 
   els.planImportResult.innerHTML = `
     <span class="chip">업로드 완료</span>
-    ${escapeHtml(year)} · ${escapeHtml(title)} · 검색어 ${added.length}개 생성
+    ${escapeHtml(year)} · ${escapeHtml(title)} · 검색어 ${added.length}개 생성 · 기사 후보는 Google Sheets 연결 후 추가
   `;
   showToast("사업계획서를 저장했습니다.");
 }
@@ -832,9 +878,9 @@ async function syncSheets() {
   }
 }
 
-async function loadSheetsSnapshot() {
+async function loadSheetsSnapshot(options = {}) {
   if (!APP_CONFIG.appsScriptEndpoint) {
-    showToast("구글시트 연결 주소가 없습니다.");
+    if (!options.silent) showToast("구글시트 연결 주소가 없습니다.");
     return;
   }
 
@@ -845,9 +891,9 @@ async function loadSheetsSnapshot() {
     const result = await response.json();
     if (!result.ok) throw new Error(result.error || "Google Sheets load failed");
     applySheetsSnapshot(result.sheets || {});
-    showToast("Google Sheets에서 불러왔습니다.");
+    if (!options.silent) showToast("Google Sheets에서 불러왔습니다.");
   } catch (error) {
-    showToast("구글시트 불러오기에 실패했습니다.");
+    if (!options.silent) showToast("구글시트 불러오기에 실패했습니다.");
   }
 }
 
@@ -1100,7 +1146,16 @@ function getActiveKeywords() {
 function extractKeywordCandidates(text) {
   if (!text) return [];
   const candidates = new Map();
-  const knownNames = ["플라스틱방앗간", "시티트리클럽", "씨앗의숲", "지구를 구하장"];
+  const knownNames = [
+    "플라스틱방앗간",
+    "시티트리클럽",
+    "씨앗의숲",
+    "지구를 구하장",
+    "도시의 풍경 Reboot",
+    "라이드어스",
+    "불편클럽",
+    "참새클럽"
+  ];
 
   knownNames.forEach((name) => {
     if (text.includes(name)) candidates.set(normalize(name), name);
@@ -1109,6 +1164,7 @@ function extractKeywordCandidates(text) {
   text.split(/\n+/).forEach((line) => {
     const trimmed = line.trim();
     if (!trimmed.includes(":") && !trimmed.includes("：")) return;
+    if (!isPotentialCampaignTitleLine(trimmed)) return;
     const parts = trimmed
       .split(/[:：]/)
       .slice(1)
@@ -1153,17 +1209,114 @@ function isCampaignCandidate(value) {
   if (candidate.length < 2 || candidate.length > 18) return false;
   if (/^\d+$/.test(candidate)) return false;
   if (candidate.includes("서울환경연합") || candidate.includes("서울환경운동연합")) return false;
-  const stopwords = ["사업명", "핵심목표", "활동내용", "담당자", "변화목표", "관찰지표", "산출지표", "협력기관"];
+  const knownNames = [
+    "플라스틱방앗간",
+    "시티트리클럽",
+    "씨앗의숲",
+    "지구를 구하장",
+    "도시의 풍경 Reboot",
+    "라이드어스",
+    "불편클럽",
+    "참새클럽"
+  ];
+  if (knownNames.includes(candidate)) return true;
+
+  const stopwords = [
+    "사업명",
+    "핵심목표",
+    "활동내용",
+    "담당자",
+    "변화목표",
+    "관찰지표",
+    "산출지표",
+    "협력기관",
+    "보도자료 발송",
+    "플랫폼 구축",
+    "탐험단 운영",
+    "서비스 홍보",
+    "내부 담당",
+    "연대/협력",
+    "조달 계획"
+  ];
   if (stopwords.includes(candidate)) return false;
+  if (/[0-9,]+명|[0-9,]+건|[0-9]+회|[0-9]+원/.test(candidate)) return false;
+
+  const genericWords = [
+    "담당",
+    "협력",
+    "연대",
+    "예산",
+    "조달",
+    "계획",
+    "정책",
+    "대응",
+    "운영",
+    "구축",
+    "발송",
+    "개선",
+    "확대",
+    "제안",
+    "정리",
+    "자료",
+    "제작",
+    "개발",
+    "전략",
+    "모니터링",
+    "후원",
+    "모금",
+    "활동",
+    "교육",
+    "홍보",
+    "브랜딩",
+    "콘텐츠",
+    "온라인",
+    "오프라인",
+    "방문자",
+    "참여자"
+  ];
+  if (genericWords.some((word) => candidate.includes(word))) return false;
+
+  const looksBranded =
+    /(클럽|방앗간|구하장|의숲)$/.test(candidate) ||
+    /Reboot$/i.test(candidate);
+  if (!looksBranded) return false;
+
   return /[가-힣A-Za-z]/.test(candidate);
 }
 
 function cleanCandidate(value) {
   return String(value || "")
     .replace(/^[\s\-–—·•0-9.)]+/, "")
-    .replace(/[\s\-–—·•]+$/, "")
+    .replace(/\s+\d+$/, "")
+    .replace(/([가-힣A-Za-z])\d+$/, "$1")
+    .replace(/[\s\-–—·•,]+$/, "")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function isPotentialCampaignTitleLine(line) {
+  const prefix = line.split(/[:：]/)[0].trim();
+  if (!prefix || prefix.length > 36) return false;
+  return ![
+    "담당",
+    "구성",
+    "일시",
+    "장소",
+    "취지",
+    "내용",
+    "지표",
+    "목표",
+    "예산",
+    "조달",
+    "연대",
+    "협력",
+    "활동명",
+    "활동내용",
+    "산출지표",
+    "관찰지표",
+    "변화목표",
+    "핵심목표"
+  ].some((word) => prefix.includes(word));
 }
 
 function findArticle(id) {
