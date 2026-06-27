@@ -1,0 +1,10 @@
+{
+  "name": "news-dashboard",
+  "version": "0.1.0",
+  "private": true,
+  "description": "서울환경연합 뉴스 아카이빙 대시보드",
+  "scripts": {
+    "validate": "node scripts/validate-dashboard.mjs",
+    "collect:citytreeclub": "node scripts/collect-citytreeclub-news.mjs"
+  }
+}

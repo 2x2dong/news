@@ -1,0 +1,49 @@
+{
+  "version": "0.1.0",
+  "tabs": {
+    "users": {
+      "description": "사용자 권한",
+      "columns": ["email", "role", "name", "active"]
+    },
+    "plans": {
+      "description": "연도별 사업계획서 스냅샷",
+      "columns": ["year", "title", "source_url", "imported_at", "raw_text_file", "raw_text_length"]
+    },
+    "programs": {
+      "description": "사업 단위",
+      "columns": ["program_id", "year", "name", "goal", "change_goal", "indicators", "owners", "partners", "active"]
+    },
+    "keywords": {
+      "description": "검색어와 캠페인명",
+      "columns": ["keyword_id", "keyword", "type", "source", "active", "notes"]
+    },
+    "items": {
+      "description": "기사와 외부 게시물",
+      "columns": [
+        "item_id",
+        "title",
+        "url",
+        "canonical_url",
+        "source_name",
+        "source_type",
+        "published_at",
+        "discovered_at",
+        "matched_keyword",
+        "snippet",
+        "ai_summary",
+        "ai_basis",
+        "review_status",
+        "include_in_press_count",
+        "representative"
+      ]
+    },
+    "matches": {
+      "description": "기사와 사업의 연결",
+      "columns": ["match_id", "item_id", "program_id", "match_type", "confidence", "basis", "reviewed_by", "reviewed_at"]
+    },
+    "fetch_runs": {
+      "description": "수집 실행 기록",
+      "columns": ["run_id", "started_at", "finished_at", "trigger", "query_count", "item_count", "status", "notes"]
+    }
+  }
+}

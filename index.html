@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>뉴스 대시보드</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="styles.css" />
+    <script src="config.js"></script>
+    <script defer src="app.js"></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Vercel + Google Sheets MVP</p>
+        <h1>뉴스 대시보드</h1>
+        <p class="lead">
+          서울환경연합의 조직명과 캠페인명을 기준으로 공개 기사와 외부 게시물을 모아 평가 근거로 정리합니다.
+        </p>
+      </div>
+      <div class="topbar-actions" aria-label="대시보드 작업">
+        <div class="role-switch" aria-label="권한 모드">
+          <button class="role-button active" type="button" data-role="admin">관리자</button>
+          <button class="role-button" type="button" data-role="viewer">보기 전용</button>
+        </div>
+        <button class="button secondary" id="resetDataButton" type="button" data-admin-only>
+          <span aria-hidden="true">↺</span>
+          샘플 복원
+        </button>
+        <button class="button secondary" id="exportJsonButton" type="button">
+          <span aria-hidden="true">⇩</span>
+          JSON
+        </button>
+        <button class="button primary" id="copyReportButton" type="button">
+          <span aria-hidden="true">⧉</span>
+          요약 복사
+        </button>
+      </div>
+    </header>
+
+    <main class="page">
+      <section class="summary-strip" aria-label="핵심 지표">
+        <article class="metric-card">
+          <span class="metric-label">집계 기사</span>
+          <strong id="includedCount">0</strong>
+          <span class="metric-note">성과 보도 횟수 후보</span>
+        </article>
+        <article class="metric-card">
+          <span class="metric-label">대표 기사</span>
+          <strong id="representativeCount">0</strong>
+          <span class="metric-note">평가 문장 근거</span>
+        </article>
+        <article class="metric-card">
+          <span class="metric-label">검토 필요</span>
+          <strong id="reviewCount">0</strong>
+          <span class="metric-note">사람 판단 대기</span>
+        </article>
+        <article class="metric-card">
+          <span class="metric-label">중복 의심</span>
+          <strong id="duplicateCount">0</strong>
+          <span class="metric-note">집계 전 확인</span>
+        </article>
+      </section>
+
+      <section class="workspace">
+        <aside class="control-panel" aria-label="필터와 평가 요약">
+          <section class="panel-section">
+            <h2>분석 기준</h2>
+            <dl class="definition-list">
+              <div>
+                <dt>활동</dt>
+                <dd>나무의 권리 재인식 플랫폼: 시티트리클럽</dd>
+              </div>
+              <div>
+                <dt>저장소</dt>
+                <dd id="syncStatus">로컬 검토 모드</dd>
+              </div>
+              <div>
+                <dt>키워드</dt>
+                <dd id="keywordChips" class="chip-list"></dd>
+              </div>
+              <div>
+                <dt>검색 기간</dt>
+                <dd>2026년 1월 1일 이후 공개 언론사 기사. 현재 기본 데이터는 수기 시트로 검증한 7건</dd>
+              </div>
+              <div>
+                <dt>검토 기준</dt>
+                <dd>비언론사 출처 제외, 같은 언론사 안의 중복만 의심 처리, 과장 표현 최종 확인</dd>
+              </div>
+            </dl>
+          </section>
+
+          <section class="panel-section">
+            <h2>필터</h2>
+            <label class="field">
+              <span>검색</span>
+              <input id="searchInput" type="search" placeholder="기사 제목, 언론사, 키워드" />
+            </label>
+
+            <div class="field">
+              <span>검토 상태</span>
+              <div class="segmented" role="group" aria-label="검토 상태">
+                <button class="segment active" type="button" data-filter-status="all">전체</button>
+                <button class="segment" type="button" data-filter-status="related">관련</button>
+                <button class="segment" type="button" data-filter-status="needs-review">검토</button>
+                <button class="segment" type="button" data-filter-status="representative">대표</button>
+                <button class="segment" type="button" data-filter-status="duplicate">중복</button>
+              </div>
+            </div>
+
+            <label class="field">
+              <span>언론사</span>
+              <select id="sourceSelect"></select>
+            </label>
+          </section>
+
+          <section class="panel-section">
+            <h2>키워드 근거</h2>
+            <div id="keywordBars" class="bar-list" aria-label="키워드별 기사 수"></div>
+          </section>
+
+          <section class="panel-section report-section">
+            <h2>평가용 요약</h2>
+            <textarea id="reportText" readonly aria-label="평가용 요약 문장"></textarea>
+            <p class="hint">기사 원문을 그대로 복사하지 않고, 공개 기사 제목과 검토 상태를 바탕으로 초안을 만듭니다.</p>
+          </section>
+        </aside>
+
+        <section class="content-panel" aria-label="기사 목록과 입력">
+          <div class="section-head">
+            <div>
+              <h2>기사 검토</h2>
+              <p id="resultCount" class="muted">0건 표시 중</p>
+            </div>
+            <details class="add-article">
+              <summary>기사 추가</summary>
+              <form id="articleForm" class="article-form">
+                <label>
+                  <span>기사 제목</span>
+                  <input id="newTitle" required placeholder="공개 기사 제목" />
+                </label>
+                <label>
+                  <span>언론사</span>
+                  <input id="newSource" required placeholder="언론사 또는 공개 출처" />
+                </label>
+                <label>
+                  <span>출처 유형</span>
+                  <select id="newSourceType">
+                    <option value="media">언론사 기사</option>
+                    <option value="blog">블로그</option>
+                    <option value="social">SNS</option>
+                    <option value="institution">기관 게시물</option>
+                    <option value="own">단체 자체 게시물</option>
+                    <option value="other">기타</option>
+                  </select>
+                </label>
+                <label>
+                  <span>날짜</span>
+                  <input id="newDate" type="date" required />
+                </label>
+                <label>
+                  <span>URL</span>
+                  <input id="newUrl" type="url" required placeholder="https://..." />
+                </label>
+                <label class="wide">
+                  <span>요약 메모</span>
+                  <textarea id="newSummary" rows="3" placeholder="공개 기사에서 확인 가능한 범위로 짧게 요약"></textarea>
+                </label>
+                <button class="button primary wide" type="submit">검토 목록에 추가</button>
+              </form>
+            </details>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>기사</th>
+                  <th>출처</th>
+                  <th>판정 근거</th>
+                  <th>집계</th>
+                  <th>검토</th>
+                </tr>
+              </thead>
+              <tbody id="articleTable"></tbody>
+            </table>
+          </div>
+
+          <section class="detail-panel" id="detailPanel" aria-live="polite">
+            <div>
+              <p class="eyebrow">선택한 기사</p>
+              <h2 id="detailTitle">기사를 선택하세요</h2>
+              <p id="detailMeta" class="muted">목록에서 행을 누르면 검토 메모가 열립니다.</p>
+            </div>
+            <p id="detailSummary" class="detail-summary">
+              관련 여부, 같은 언론사 안의 중복 가능성, 대표 기사 여부를 확인해 평가 근거를 다듬을 수 있습니다.
+            </p>
+            <div id="detailActions" class="detail-actions"></div>
+          </section>
+        </section>
+      </section>
+
+      <section class="admin-panel" id="adminPanel" aria-label="관리자 페이지">
+        <div class="admin-head">
+          <div>
+            <p class="eyebrow">Admin</p>
+            <h2>운영 관리</h2>
+          </div>
+          <div class="admin-actions">
+            <button class="button secondary" id="exportSheetsButton" type="button">시트용 JSON</button>
+            <button class="button primary" id="syncSheetsButton" type="button">구글시트 저장</button>
+          </div>
+        </div>
+
+        <div class="admin-grid">
+          <section class="admin-section">
+            <h3>구글시트 연결</h3>
+            <dl class="definition-list compact">
+              <div>
+                <dt>배포</dt>
+                <dd>Vercel 정적 사이트</dd>
+              </div>
+              <div>
+                <dt>DB</dt>
+                <dd>Google Sheets</dd>
+              </div>
+              <div>
+                <dt>수집</dt>
+                <dd id="collectionSchedule">오전 1회, 저녁 1회</dd>
+              </div>
+              <div>
+                <dt>시트 링크</dt>
+                <dd id="sheetLink">미설정</dd>
+              </div>
+            </dl>
+          </section>
+
+          <section class="admin-section">
+            <h3>사업계획서 업로드</h3>
+            <form id="planForm" class="admin-form">
+              <label>
+                <span>연도</span>
+                <input id="planYear" type="number" min="2020" max="2100" value="2026" required />
+              </label>
+              <label>
+                <span>문서 제목</span>
+                <input id="planTitle" value="서울환경연합 주요사업계획서" required />
+              </label>
+              <label class="wide">
+                <span>Google Docs 링크</span>
+                <input id="planUrl" type="url" placeholder="https://docs.google.com/document/..." />
+              </label>
+              <label class="wide">
+                <span>본문</span>
+                <textarea id="planText" rows="8" placeholder="사업계획서 본문을 붙여넣기"></textarea>
+              </label>
+              <button class="button primary wide" type="submit">업로드 및 검색어 생성</button>
+            </form>
+            <div id="planImportResult" class="admin-result"></div>
+          </section>
+
+          <section class="admin-section">
+            <h3>검색어 관리</h3>
+            <form id="keywordForm" class="admin-form keyword-form">
+              <label>
+                <span>검색어</span>
+                <input id="newKeyword" required placeholder="캠페인명 또는 조직명" />
+              </label>
+              <label>
+                <span>유형</span>
+                <select id="newKeywordType">
+                  <option value="캠페인명">캠페인명</option>
+                  <option value="조직명">조직명</option>
+                  <option value="사업명">사업명</option>
+                  <option value="협력기관명">협력기관명</option>
+                </select>
+              </label>
+              <label class="wide">
+                <span>메모</span>
+                <input id="newKeywordNotes" placeholder="잡음, 제외 기준, 참고사항" />
+              </label>
+              <button class="button secondary wide" type="submit">검색어 추가</button>
+            </form>
+            <div id="keywordList" class="keyword-admin-list"></div>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  </body>
+</html>
