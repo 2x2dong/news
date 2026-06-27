@@ -61,3 +61,9 @@
 - **왜**: 실제 운영에서는 기사 목록을 보는 사람과 수정하는 사람을 나누고, 매년 바뀌는 사업계획서에서 캠페인 검색어를 다시 생성할 수 있어야 하기 때문이다.
 - **어떻게**: `config.js`, `vercel.json`, `apps-script/Code.gs`, `data/sheets-schema.json`, `docs/technical-spec.md`, `scripts/validate-dashboard.mjs`를 추가하고 README에 배지와 운영 명세를 정리했다.
 - **검증**: 앱 문법 검사, 자체 검증 스크립트, Playwright 렌더링 검증을 통과했다.
+
+### 2026-06-27 Vercel 배포
+- **정한 것 / 한 것**: Vercel에 `dongi/news` 프로젝트를 만들고 production 배포를 완료했다.
+- **배포 URL**: `https://news-phi-cyan.vercel.app`
+- **검증**: 배포 URL에서 Playwright로 제목, 지표, 기사 7건, 관리자/보기 전용 전환, 모바일 가로 넘침 없음을 확인했다.
+- **주의**: GitHub 자동 연결은 Vercel 계정의 GitHub Login Connection 추가가 필요하다고 표시되었다. 현재는 CLI 배포로 운영 URL이 생성된 상태다.

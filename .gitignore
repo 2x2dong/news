@@ -4,3 +4,4 @@ data/business-plan.txt
 data/discovery-report.json
 data/discovery-report.md
 config.local.js
+.vercel

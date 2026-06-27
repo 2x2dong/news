@@ -9,6 +9,10 @@
 서울환경연합의 언론 보도와 사회적 확산 근거를 아카이빙하는 대시보드입니다.
 Vercel에 화면을 올리고, Google Sheets를 DB처럼 쓰는 저비용 운영 방식을 기본으로 합니다.
 
+## 배포 URL
+
+- [https://news-phi-cyan.vercel.app](https://news-phi-cyan.vercel.app)
+
 ## 현재 구현
 
 - 시티트리클럽 검증 기사 7건 기본 데이터
