@@ -107,8 +107,8 @@ function setAdminPassword(password) {
 
 function setAdminPassword_(password) {
   const value = String(password || "").trim();
-  if (value.length < 8) {
-    return { ok: false, error: "password must be at least 8 characters" };
+  if (value.length < 4) {
+    return { ok: false, error: "password must be at least 4 characters" };
   }
   PropertiesService.getScriptProperties().setProperty("ADMIN_PASSWORD", value);
   return { ok: true, action: "setAdminPassword", updatedAt: new Date().toISOString() };
@@ -939,6 +939,8 @@ function getActor_(body) {
   if (scriptToken && body.token === scriptToken) return { email: "token-admin", role: "admin", canWrite: true };
 
   const email = Session.getActiveUser().getEmail();
+  if (!email) return { email: "", role: "", canWrite: false };
+
   const user = readRows_("users").find((row) => row.email === email && String(row.active).toLowerCase() !== "false");
   const role = user ? user.role : "";
   return { email, role, canWrite: role === "admin" };

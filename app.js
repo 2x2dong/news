@@ -263,6 +263,7 @@ document.addEventListener("DOMContentLoaded", () => {
   bindElements();
   bindEvents();
   render();
+  verifyStoredAdminPassword();
   if (APP_CONFIG.appsScriptEndpoint) loadSheetsSnapshot({ silent: true });
 });
 
@@ -952,6 +953,28 @@ function adminLogout() {
   state.role = isViewerRoute() ? "viewer" : "locked";
   render();
   showToast("관리자 모드에서 나왔습니다.");
+}
+
+async function verifyStoredAdminPassword() {
+  if (state.role !== "admin" || !APP_CONFIG.appsScriptEndpoint || !getAdminPassword()) return;
+
+  try {
+    const response = await fetch(APP_CONFIG.appsScriptEndpoint, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ action: "authCheck", password: getAdminPassword() })
+    });
+    const result = await response.json();
+    if (response.ok && result.ok) return;
+  } catch (error) {
+    // Treat network or auth errors as a stale local login.
+  }
+
+  localStorage.removeItem(ADMIN_PASSWORD_STORAGE_KEY);
+  localStorage.removeItem(ROLE_STORAGE_KEY);
+  state.role = "locked";
+  render();
+  showToast("관리자 비밀번호가 변경되어 다시 로그인해주세요.");
 }
 
 async function copyViewerLink() {
