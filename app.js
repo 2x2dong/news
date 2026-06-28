@@ -2,9 +2,13 @@ const LEGACY_ARTICLE_STORAGE_KEY = "news-dashboard:v4";
 const ARTICLE_STORAGE_KEY = "news-dashboard:articles:v5";
 const KEYWORD_STORAGE_KEY = "news-dashboard:keywords:v5";
 const PLAN_STORAGE_KEY = "news-dashboard:plans:v5";
+const PROGRAM_STORAGE_KEY = "news-dashboard:programs:v6";
 const ROLE_STORAGE_KEY = "news-dashboard:role:v5";
-const ADMIN_TOKEN_STORAGE_KEY = "news-dashboard:admin-token:v5";
+const ADMIN_PASSWORD_STORAGE_KEY = "news-dashboard:admin-password:v6";
 const COLLECTION_START = "2026-01-01";
+const DEFAULT_YEAR = "2026";
+
+const DEFAULT_CATEGORIES = ["생태도시", "기후행동", "자원순환", "시민참여", "모금", "기타"];
 
 const APP_CONFIG = {
   googleSheetUrl: "",
@@ -13,6 +17,8 @@ const APP_CONFIG = {
   organizationNames: ["서울환경연합", "서울환경운동연합"],
   ...(window.NEWS_DASHBOARD_CONFIG || {})
 };
+
+const VIEWER_URL = `${window.location.origin}${window.location.pathname}?view=viewer`;
 
 const SOURCE_TYPE_LABELS = {
   media: "언론사 기사",
@@ -80,6 +86,29 @@ const DEFAULT_KEYWORDS = [
     active: true,
     notes: "사업 메시지"
   }
+];
+
+const DEFAULT_PROGRAMS = [
+  {
+    id: "program-citytreeclub-2026",
+    year: "2026",
+    name: "나무의 권리 재인식 플랫폼: 시티트리클럽",
+    category: "생태도시",
+    goal: "도시 나무와 가로수의 권리를 시민이 기록하고 확산",
+    changeGoal: "언론 보도와 사회적 확산 근거 확보",
+    indicators: "언론보도 횟수, 대표 기사, 시민 참여와 외부 확산",
+    active: true
+  },
+  ...DEFAULT_CATEGORIES.map((category) => ({
+    id: `program-2026-category-${normalizeSeed(category)}`,
+    year: "2026",
+    name: `${category} 정책 대응`,
+    category,
+    goal: "사업계획서에 없는 돌발 현장 대응 기사 분류",
+    changeGoal: "",
+    indicators: "",
+    active: true
+  }))
 ];
 
 const seedArticles = [
@@ -216,12 +245,15 @@ let state = {
   articles: loadArticles(),
   keywords: loadCollection(KEYWORD_STORAGE_KEY, cloneDefaultKeywords),
   plans: loadCollection(PLAN_STORAGE_KEY, () => []),
+  programs: loadCollection(PROGRAM_STORAGE_KEY, cloneDefaultPrograms),
   role: loadRole(),
   selectedId: null,
   filters: {
     search: "",
     status: "all",
-    source: "all"
+    source: "all",
+    program: "all",
+    quality: "all"
   }
 };
 
@@ -243,8 +275,9 @@ function bindElements() {
     "keywordChips",
     "searchInput",
     "sourceSelect",
+    "programSelect",
+    "qualitySelect",
     "keywordBars",
-    "reportText",
     "articleTable",
     "resultCount",
     "detailPanel",
@@ -253,9 +286,13 @@ function bindElements() {
     "detailSummary",
     "detailActions",
     "toast",
+    "adminLoginForm",
+    "adminPasswordInput",
+    "adminLoginButton",
+    "adminLogoutButton",
+    "copyViewerLinkButton",
     "resetDataButton",
     "exportJsonButton",
-    "copyReportButton",
     "articleForm",
     "newTitle",
     "newSource",
@@ -268,34 +305,27 @@ function bindElements() {
     "sheetLink",
     "adminPanel",
     "loadSheetsButton",
+    "fetchNewsButton",
     "syncSheetsButton",
     "exportSheetsButton",
-    "adminTokenInput",
     "planForm",
     "planYear",
     "planTitle",
     "planUrl",
-    "planText",
+    "planFile",
     "planImportResult",
     "keywordForm",
     "newKeyword",
     "newKeywordType",
     "newKeywordNotes",
-    "keywordList"
+    "keywordList",
+    "programList"
   ].forEach((id) => {
     els[id] = document.getElementById(id);
   });
 }
 
 function bindEvents() {
-  document.querySelectorAll("[data-role]").forEach((button) => {
-    button.addEventListener("click", () => {
-      state.role = button.dataset.role;
-      localStorage.setItem(ROLE_STORAGE_KEY, state.role);
-      render();
-    });
-  });
-
   els.searchInput.addEventListener("input", (event) => {
     state.filters.search = event.target.value.trim();
     renderArticles();
@@ -303,6 +333,16 @@ function bindEvents() {
 
   els.sourceSelect.addEventListener("change", (event) => {
     state.filters.source = event.target.value;
+    renderArticles();
+  });
+
+  els.programSelect.addEventListener("change", (event) => {
+    state.filters.program = event.target.value;
+    renderArticles();
+  });
+
+  els.qualitySelect.addEventListener("change", (event) => {
+    state.filters.quality = event.target.value;
     renderArticles();
   });
 
@@ -320,25 +360,27 @@ function bindEvents() {
     state.articles = cloneSeedArticles();
     state.keywords = cloneDefaultKeywords();
     state.plans = [];
+    state.programs = cloneDefaultPrograms();
     state.selectedId = null;
     saveArticles();
     saveKeywords();
     savePlans();
+    savePrograms();
     render();
     showToast("샘플 데이터를 복원했습니다.");
   });
 
+  els.adminLoginForm.addEventListener("submit", adminLogin);
+  els.adminLogoutButton.addEventListener("click", adminLogout);
+  els.copyViewerLinkButton.addEventListener("click", copyViewerLink);
   els.exportJsonButton.addEventListener("click", exportJson);
   els.exportSheetsButton.addEventListener("click", exportSheetsJson);
   els.loadSheetsButton.addEventListener("click", loadSheetsSnapshot);
+  els.fetchNewsButton.addEventListener("click", fetchNews);
   els.syncSheetsButton.addEventListener("click", syncSheets);
-  els.copyReportButton.addEventListener("click", copyReport);
   els.articleForm.addEventListener("submit", addArticle);
   els.planForm.addEventListener("submit", importPlan);
   els.keywordForm.addEventListener("submit", addKeyword);
-  els.adminTokenInput.addEventListener("input", () => {
-    localStorage.setItem(ADMIN_TOKEN_STORAGE_KEY, els.adminTokenInput.value.trim());
-  });
 
   els.keywordList.addEventListener("click", (event) => {
     const button = event.target.closest("[data-keyword-toggle]");
@@ -352,9 +394,10 @@ function render() {
   renderIntegrationStatus();
   renderKeywordChips();
   renderSourceOptions();
+  renderProgramOptions();
   renderStats();
   renderKeywordBars();
-  renderReport();
+  renderProgramManagement();
   renderKeywordManagement();
   renderPlanSummary();
   renderArticles();
@@ -362,9 +405,12 @@ function render() {
 
 function renderRole() {
   document.body.dataset.role = state.role;
-  document.querySelectorAll("[data-role]").forEach((button) => {
-    button.classList.toggle("active", button.dataset.role === state.role);
-  });
+  const isAdmin = state.role === "admin";
+  const isViewer = state.role === "viewer";
+  els.adminPasswordInput.value = isAdmin ? "••••••••" : "";
+  els.adminPasswordInput.disabled = isAdmin || isViewer;
+  els.adminLoginButton.hidden = isAdmin || isViewer;
+  els.adminLogoutButton.hidden = !isAdmin;
 }
 
 function renderIntegrationStatus() {
@@ -373,7 +419,6 @@ function renderIntegrationStatus() {
   const schedule = (APP_CONFIG.collectionTimes || []).join(", ") || "09:00, 18:00";
 
   els.syncStatus.textContent = hasEndpoint ? "Google Sheets 연결 준비" : "로컬 검토 모드";
-  els.adminTokenInput.value = localStorage.getItem(ADMIN_TOKEN_STORAGE_KEY) || "";
   els.collectionSchedule.textContent = schedule;
   els.sheetLink.innerHTML = hasSheet
     ? `<a href="${escapeAttr(APP_CONFIG.googleSheetUrl)}" target="_blank" rel="noreferrer">Google Sheets 열기</a>`
@@ -398,6 +443,17 @@ function renderSourceOptions() {
   els.sourceSelect.value = state.filters.source;
 }
 
+function renderProgramOptions() {
+  const programs = getActivePrograms();
+  els.programSelect.innerHTML = [
+    '<option value="all">전체 사업</option>',
+    ...programs.map((program) => `<option value="${escapeAttr(program.id)}">${escapeHtml(program.name)}</option>`)
+  ].join("");
+  if (!programs.some((program) => program.id === state.filters.program)) state.filters.program = "all";
+  els.programSelect.value = state.filters.program;
+  els.qualitySelect.value = state.filters.quality;
+}
+
 function renderStats() {
   const included = state.articles.filter(isCountedArticle);
   const representatives = state.articles.filter((article) => article.representative);
@@ -408,6 +464,23 @@ function renderStats() {
   els.representativeCount.textContent = representatives.length.toString();
   els.reviewCount.textContent = reviewNeeded.length.toString();
   els.duplicateCount.textContent = duplicateGroups.length.toString();
+}
+
+function renderProgramManagement() {
+  const programs = getActivePrograms();
+  els.programList.innerHTML = programs
+    .map(
+      (program) => `
+        <div class="program-row">
+          <div>
+            <strong>${escapeHtml(program.name)}</strong>
+            <small>${escapeHtml(program.category || "기타")} · ${escapeHtml(program.goal || "분류 기준")}</small>
+          </div>
+          <span class="chip neutral">${escapeHtml(program.year || DEFAULT_YEAR)}</span>
+        </div>
+      `
+    )
+    .join("");
 }
 
 function renderKeywordBars() {
@@ -430,10 +503,6 @@ function renderKeywordBars() {
       `;
     })
     .join("");
-}
-
-function renderReport() {
-  els.reportText.value = buildReportText();
 }
 
 function renderKeywordManagement() {
@@ -490,6 +559,26 @@ function renderArticles() {
     });
   });
 
+  els.articleTable.querySelectorAll("[data-article-program]").forEach((select) => {
+    select.addEventListener("change", () => {
+      const program = findProgram(select.value);
+      updateArticle(select.dataset.articleProgram, {
+        matchedProgram: program ? program.id : "",
+        programName: program ? program.name : "기타 정책 대응",
+        programCategory: program ? program.category : "기타"
+      });
+    });
+  });
+
+  els.articleTable.querySelectorAll("[data-article-quality]").forEach((select) => {
+    select.addEventListener("change", () => {
+      updateArticle(select.dataset.articleQuality, {
+        quality: select.value,
+        qualityBasis: "관리자 최종 선택"
+      });
+    });
+  });
+
   els.articleTable.querySelectorAll("[data-count]").forEach((button) => {
     button.addEventListener("click", () => {
       toggleArticleCount(button.dataset.count);
@@ -507,6 +596,34 @@ function renderArticleRow(article) {
   const representativeChip = article.representative ? '<span class="chip">대표</span>' : "";
   const sheetChip = article.sheetRow ? `<span class="chip neutral">수기목록 #${escapeHtml(article.sheetRow)}</span>` : "";
   const sourceTypeChip = `<span class="chip neutral">${escapeHtml(getSourceTypeLabel(article.sourceType))}</span>`;
+  const program = findProgram(article.matchedProgram) || {
+    id: article.matchedProgram || "",
+    name: article.programName || "기타 정책 대응",
+    category: article.programCategory || "기타"
+  };
+  const programCell =
+    state.role === "admin"
+      ? `
+        <select class="review-select compact-select" data-article-program="${escapeAttr(article.id)}" aria-label="사업 분류">
+          ${getActivePrograms()
+            .map(
+              (item) =>
+                `<option value="${escapeAttr(item.id)}" ${item.id === program.id ? "selected" : ""}>${escapeHtml(item.name)}</option>`
+            )
+            .join("")}
+        </select>
+        <select class="review-select compact-select" data-article-quality="${escapeAttr(article.id)}" aria-label="기사 품질">
+          ${["상", "중", "하", "미분류"]
+            .map((quality) => `<option value="${quality}" ${article.quality === quality ? "selected" : ""}>${quality}</option>`)
+            .join("")}
+        </select>
+      `
+      : `
+        <div class="status-line">
+          <span class="chip">${escapeHtml(program.name)}</span>
+          <span class="chip neutral">${escapeHtml(article.quality || "미분류")}</span>
+        </div>
+      `;
   const countLabel = isCountedArticle(article) ? "집계 포함" : "집계 제외";
   const countCell =
     state.role === "admin"
@@ -548,6 +665,12 @@ function renderArticleRow(article) {
           <span class="chip neutral">${escapeHtml(article.relevanceBasis || "근거 미정")}</span>
         </div>
         <p class="basis-note">${escapeHtml(getBasisNote(article))}</p>
+      </td>
+      <td>
+        <div class="program-quality-cell">
+          ${programCell}
+          <p class="basis-note">${escapeHtml(article.qualityBasis || "품질 확인 필요")}</p>
+        </div>
       </td>
       <td>${countCell}</td>
       <td>${reviewCell}</td>
@@ -618,12 +741,17 @@ function getFilteredArticles() {
           article.summary,
           article.url,
           article.sheetRow ? `수기목록 ${article.sheetRow}` : "",
+          article.programName,
+          article.programCategory,
+          article.quality,
           article.matchedKeywords.join(" "),
           article.note
         ].join(" ")
       );
       if (search && !haystack.includes(search)) return false;
       if (state.filters.source !== "all" && article.source !== state.filters.source) return false;
+      if (state.filters.program !== "all" && article.matchedProgram !== state.filters.program) return false;
+      if (state.filters.quality !== "all" && article.quality !== state.filters.quality) return false;
       if (state.filters.status === "related") return article.reviewStatus === "related";
       if (state.filters.status === "needs-review") return article.reviewStatus === "needs-review";
       if (state.filters.status === "representative") return article.representative;
@@ -660,6 +788,8 @@ function addArticle(event) {
 
   const sourceType = els.newSourceType.value;
   const text = `${els.newTitle.value} ${els.newSummary.value}`;
+  const program = inferProgramForText(text);
+  const quality = inferArticleQuality(text);
   const article = {
     id: `manual-${Date.now()}`,
     title: els.newTitle.value.trim(),
@@ -674,7 +804,11 @@ function addArticle(event) {
     representative: false,
     includeInCount: false,
     duplicateGroup: "",
-    matchedProgram: "",
+    matchedProgram: program.id,
+    programName: program.name,
+    programCategory: program.category,
+    quality: quality.quality,
+    qualityBasis: quality.basis,
     note: "새로 추가된 항목이라 사람이 관련성 및 집계 포함 여부를 확인해야 합니다."
   };
   state.articles = [article, ...state.articles];
@@ -692,81 +826,52 @@ async function importPlan(event) {
   const year = String(els.planYear.value || "").trim();
   const title = els.planTitle.value.trim();
   const sourceUrl = els.planUrl.value.trim();
-  const rawText = els.planText.value.trim();
+  const selectedFile = els.planFile.files && els.planFile.files[0];
 
-  if (!year || !title || (!sourceUrl && !rawText)) {
-    showToast("연도, 제목, 링크 또는 본문을 확인해주세요.");
+  if (!year || !title || (!sourceUrl && !selectedFile)) {
+    showToast("연도, 제목, 링크 또는 파일을 확인해주세요.");
     return;
   }
 
-  if (APP_CONFIG.appsScriptEndpoint && getAdminToken()) {
+  if (APP_CONFIG.appsScriptEndpoint && getAdminPassword()) {
     try {
-      showToast("사업계획서를 읽고 기사 후보를 찾고 있습니다.");
+      showToast("사업계획서를 읽고 사업/기사 후보를 찾고 있습니다.");
+      const file = selectedFile ? await fileToPayload(selectedFile) : null;
       const response = await fetch(APP_CONFIG.appsScriptEndpoint, {
         method: "POST",
         headers: { "Content-Type": "text/plain;charset=utf-8" },
         body: JSON.stringify({
           action: "importPlan",
-          token: getAdminToken(),
+          password: getAdminPassword(),
           year,
           title,
           sourceUrl,
-          rawText
+          file
         })
       });
       const result = await response.json();
       if (!result.ok) throw new Error(result.error || "사업계획서 업로드 실패");
       applySheetsSnapshot(result.sheets || {});
-      els.planText.value = "";
+      els.planFile.value = "";
       els.planImportResult.innerHTML = `
         <span class="chip">업로드 완료</span>
         ${escapeHtml(year)} · ${escapeHtml(title)} · 추출 검색어 ${escapeHtml(
           result.keywordsExtracted
-        )}개 · 새 검색어 ${escapeHtml(result.keywordsAdded)}개 · 기사 후보 ${escapeHtml(
-          result.itemsFound
-        )}건 확인 / ${escapeHtml(result.itemsAdded)}건 추가
+        )}개 · 발췌 사업 ${escapeHtml(result.programsExtracted || 0)}개 · 새 검색어 ${escapeHtml(
+          result.keywordsAdded
+        )}개 · 기사 후보 ${escapeHtml(result.itemsFound)}건 확인 / ${escapeHtml(result.itemsAdded)}건 추가
       `;
       showToast("사업계획서와 기사 후보를 저장했습니다.");
       return;
     } catch (error) {
-      if (!rawText) {
-        els.planImportResult.textContent = "Google Docs 링크를 읽지 못했습니다. 문서 권한을 확인하거나 본문을 붙여넣어 주세요.";
-        showToast("사업계획서 업로드에 실패했습니다.");
-        return;
-      }
-      showToast("DB 업로드 실패, 로컬에서 검색어만 생성합니다.");
+      els.planImportResult.textContent = "사업계획서를 읽지 못했습니다. Google Docs 권한 또는 PDF/DOCX 파일을 확인해주세요.";
+      showToast("사업계획서 업로드에 실패했습니다.");
+      return;
     }
   }
 
-  if (sourceUrl && !rawText) {
-    els.planImportResult.textContent = "Google Docs 링크만으로 업로드하려면 관리자 토큰과 Google Sheets 연결이 필요합니다.";
-    showToast("본문을 붙여넣거나 관리자 토큰을 입력해주세요.");
-    return;
-  }
-
-  const plan = {
-    id: `plan-${year}-${Date.now()}`,
-    year,
-    title,
-    sourceUrl,
-    importedAt: new Date().toISOString(),
-    rawTextLength: rawText.length,
-    rawTextPreview: rawText.slice(0, 500)
-  };
-  const candidates = extractKeywordCandidates(rawText);
-  const added = addKeywordCandidates(candidates, year);
-
-  state.plans = [plan, ...state.plans].slice(0, 10);
-  savePlans();
-  saveKeywords();
-  els.planText.value = "";
-  render();
-
-  els.planImportResult.innerHTML = `
-    <span class="chip">업로드 완료</span>
-    ${escapeHtml(year)} · ${escapeHtml(title)} · 검색어 ${added.length}개 생성 · 기사 후보는 Google Sheets 연결 후 추가
-  `;
-  showToast("사업계획서를 저장했습니다.");
+  els.planImportResult.textContent = "사업계획서 업로드는 관리자 비밀번호와 Google Sheets 연결이 필요합니다.";
+  showToast("관리자 로그인 후 다시 시도해주세요.");
 }
 
 function addKeyword(event) {
@@ -810,38 +915,74 @@ function toggleKeyword(id) {
   showToast("검색어 상태를 바꿨습니다.");
 }
 
-function buildReportText() {
-  const included = state.articles.filter(isCountedArticle);
-  const representatives = state.articles.filter((article) => article.representative);
-  const sources = [...new Set(included.map((article) => article.source))];
-  const representativeTitles = representatives
-    .slice(0, 3)
-    .map((article) => `「${article.title}」(${article.source})`)
-    .join(", ");
-  const reviewNeeded = state.articles.filter((article) => article.reviewStatus === "needs-review").length;
-  const duplicateGroups = getDuplicateGroups(state.articles).length;
+async function adminLogin(event) {
+  event.preventDefault();
+  const password = els.adminPasswordInput.value.trim();
+  if (!password) {
+    showToast("관리자 비밀번호를 입력해주세요.");
+    return;
+  }
+  if (!APP_CONFIG.appsScriptEndpoint) {
+    showToast("Google Sheets 연결 뒤 관리자 로그인을 사용할 수 있습니다.");
+    return;
+  }
 
-  return [
-    "성과평가용 요약 초안",
-    "",
-    `서울환경연합의 공개 보도 모니터링 결과, 2026년 1월 1일 이후 언론사 기사 기준 ${included.length}건의 보도 후보가 집계되었습니다.`,
-    included.length
-      ? `확인된 출처는 ${sources.join(", ")}이며, 대표 근거로 ${representativeTitles || "대표 기사 검토가 필요합니다"}를 사용할 수 있습니다.`
-      : "아직 집계 포함으로 확정한 기사가 없으므로 관련 기사 여부 검토가 먼저 필요합니다.",
-    `현재 검토 필요 항목은 ${reviewNeeded}건, 같은 언론사 안의 중복 의심 묶음은 ${duplicateGroups}개입니다.`,
-    "보도 횟수에는 언론사 기사만 포함하며, 블로그·SNS·기관 게시물·단체 자체 게시물은 사회적 확산 또는 활동 근거로 분리합니다."
-  ].join("\n");
+  try {
+    const response = await fetch(APP_CONFIG.appsScriptEndpoint, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ action: "authCheck", password })
+    });
+    const result = await response.json();
+    if (!response.ok || !result.ok) throw new Error(result.error || "login failed");
+    localStorage.setItem(ADMIN_PASSWORD_STORAGE_KEY, password);
+    localStorage.setItem(ROLE_STORAGE_KEY, "admin");
+    state.role = "admin";
+    render();
+    showToast("관리자 모드로 전환했습니다.");
+  } catch (error) {
+    localStorage.removeItem(ADMIN_PASSWORD_STORAGE_KEY);
+    showToast("비밀번호가 맞지 않습니다.");
+  }
 }
 
-async function copyReport() {
-  const text = buildReportText();
+function adminLogout() {
+  localStorage.removeItem(ADMIN_PASSWORD_STORAGE_KEY);
+  localStorage.removeItem(ROLE_STORAGE_KEY);
+  state.role = isViewerRoute() ? "viewer" : "locked";
+  render();
+  showToast("관리자 모드에서 나왔습니다.");
+}
+
+async function copyViewerLink() {
   try {
-    await navigator.clipboard.writeText(text);
-    showToast("요약 문장을 복사했습니다.");
-  } catch {
-    els.reportText.select();
-    document.execCommand("copy");
-    showToast("요약 문장을 선택해 복사했습니다.");
+    await navigator.clipboard.writeText(VIEWER_URL);
+    showToast("보기 전용 링크를 복사했습니다.");
+  } catch (error) {
+    showToast(VIEWER_URL);
+  }
+}
+
+async function fetchNews() {
+  if (state.role !== "admin") return;
+  if (!APP_CONFIG.appsScriptEndpoint || !getAdminPassword()) {
+    showToast("관리자 로그인 후 수동 수집할 수 있습니다.");
+    return;
+  }
+
+  try {
+    showToast("기사 후보를 수집하고 있습니다.");
+    const response = await fetch(APP_CONFIG.appsScriptEndpoint, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ action: "fetchNews", password: getAdminPassword(), year: DEFAULT_YEAR })
+    });
+    const result = await response.json();
+    if (!response.ok || !result.ok) throw new Error(result.error || "fetch failed");
+    applySheetsSnapshot(result.sheets || {});
+    showToast(`기사 후보 ${result.itemsFound}건 확인, ${result.itemsAdded}건 추가했습니다.`);
+  } catch (error) {
+    showToast("기사 수동 수집에 실패했습니다.");
   }
 }
 
@@ -867,7 +1008,7 @@ async function syncSheets() {
     const response = await fetch(APP_CONFIG.appsScriptEndpoint, {
       method: "POST",
       headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify({ action: "snapshot", token: getAdminToken(), payload })
+      body: JSON.stringify({ action: "snapshot", password: getAdminPassword(), payload })
     });
     const result = await response.json();
     if (!response.ok || !result.ok) throw new Error(result.error || "Google Sheets sync failed");
@@ -906,8 +1047,8 @@ function buildDashboardPayload() {
     role: state.role,
     keywords: state.keywords,
     plans: state.plans,
-    articles: state.articles,
-    report: buildReportText()
+    programs: state.programs,
+    articles: state.articles
   };
 }
 
@@ -926,19 +1067,18 @@ function buildSheetsPayload() {
       raw_text_file: "",
       raw_text_length: plan.rawTextLength
     })),
-    programs: [
-      {
-        program_id: "program-citytreeclub-2026",
-        year: "2026",
-        name: "나무의 권리 재인식 플랫폼: 시티트리클럽",
-        goal: "도시 나무와 가로수의 권리를 시민이 기록하고 확산",
-        change_goal: "언론 보도와 사회적 확산 근거 확보",
-        indicators: "언론보도 횟수, 대표 기사, 시민 참여와 외부 확산",
-        owners: "",
-        partners: "",
-        active: true
-      }
-    ],
+    programs: state.programs.map((program) => ({
+      program_id: program.id,
+      year: program.year,
+      name: program.name,
+      category: program.category || "기타",
+      goal: program.goal || "",
+      change_goal: program.changeGoal || "",
+      indicators: program.indicators || "",
+      owners: program.owners || "",
+      partners: program.partners || "",
+      active: program.active
+    })),
     keywords: state.keywords.map((keyword) => ({
       keyword_id: keyword.id,
       keyword: keyword.keyword,
@@ -962,7 +1102,12 @@ function buildSheetsPayload() {
       ai_basis: [article.relevanceBasis, article.note].filter(Boolean).join(" / "),
       review_status: article.reviewStatus,
       include_in_press_count: isCountedArticle(article),
-      representative: article.representative
+      representative: article.representative,
+      program_id: article.matchedProgram || "",
+      program_name: article.programName || "",
+      program_category: article.programCategory || "",
+      quality: article.quality || "미분류",
+      quality_basis: article.qualityBasis || ""
     })),
     matches: state.articles.map((article) => ({
       match_id: `match-${article.id}`,
@@ -993,6 +1138,7 @@ function applySheetsSnapshot(sheets) {
   const items = Array.isArray(sheets.items) ? sheets.items : [];
   const keywords = Array.isArray(sheets.keywords) ? sheets.keywords : [];
   const plans = Array.isArray(sheets.plans) ? sheets.plans : [];
+  const programs = Array.isArray(sheets.programs) ? sheets.programs : [];
 
   if (items.length) {
     state.articles = items.map((item) => ({
@@ -1009,7 +1155,11 @@ function applySheetsSnapshot(sheets) {
       representative: parseBoolean(item.representative),
       includeInCount: parseBoolean(item.include_in_press_count),
       duplicateGroup: "",
-      matchedProgram: "",
+      matchedProgram: item.program_id || "",
+      programName: item.program_name || "",
+      programCategory: item.program_category || "기타",
+      quality: item.quality || "미분류",
+      qualityBasis: item.quality_basis || "",
       note: item.ai_basis || ""
     }));
   }
@@ -1037,14 +1187,30 @@ function applySheetsSnapshot(sheets) {
     }));
   }
 
+  if (programs.length) {
+    state.programs = programs.map((program) => ({
+      id: program.program_id || makeId("program"),
+      year: program.year || DEFAULT_YEAR,
+      name: program.name,
+      category: program.category || "기타",
+      goal: program.goal || "",
+      changeGoal: program.change_goal || "",
+      indicators: program.indicators || "",
+      owners: program.owners || "",
+      partners: program.partners || "",
+      active: program.active === "" ? true : parseBoolean(program.active)
+    }));
+  }
+
   saveArticles();
   saveKeywords();
   savePlans();
+  savePrograms();
   render();
 }
 
-function getAdminToken() {
-  return (els.adminTokenInput && els.adminTokenInput.value.trim()) || localStorage.getItem(ADMIN_TOKEN_STORAGE_KEY) || "";
+function getAdminPassword() {
+  return localStorage.getItem(ADMIN_PASSWORD_STORAGE_KEY) || "";
 }
 
 function splitList(value) {
@@ -1323,6 +1489,70 @@ function findArticle(id) {
   return state.articles.find((article) => article.id === id);
 }
 
+function findProgram(id) {
+  return state.programs.find((program) => program.id === id);
+}
+
+function getActivePrograms() {
+  return state.programs.filter((program) => program.active !== false);
+}
+
+function inferProgramForText(text) {
+  const normalized = normalize(text);
+  const direct = getActivePrograms().find((program) => normalized.includes(normalize(program.name)));
+  if (direct) return direct;
+  const category = inferCategory(text);
+  return (
+    getActivePrograms().find((program) => program.category === category) ||
+    getActivePrograms().find((program) => program.category === "기타") ||
+    cloneDefaultPrograms().find((program) => program.category === "기타")
+  );
+}
+
+function inferCategory(text) {
+  const normalized = normalize(text);
+  const rules = [
+    { category: "자원순환", words: ["플라스틱", "제로웨이스트", "수리", "자원순환", "쓰레기", "재활용", "다회용"] },
+    { category: "기후행동", words: ["기후", "태양광", "에너지", "교통", "자전거", "산불", "탄소"] },
+    { category: "생태도시", words: ["가로수", "나무", "숲", "공원", "한강", "생태", "난개발", "노들섬", "도시"] },
+    { category: "시민참여", words: ["시민", "참여", "캠페인", "교육", "워크숍", "회원"] },
+    { category: "모금", words: ["모금", "후원", "파트너십", "기금", "다이렉트", "리드", "tm", "기업"] }
+  ];
+  const match = rules.find((rule) => rule.words.some((word) => normalized.includes(normalize(word))));
+  return match ? match.category : "기타";
+}
+
+function inferArticleQuality(text) {
+  const normalized = normalize(text);
+  if (/포토|사진|화보|캡션|tf사진관|현장사진/i.test(text)) {
+    return { quality: "하", basis: "사진·캡션 중심 기사로 추정" };
+  }
+  if (normalized.includes("서울환경연합") && /발행|성명|논평|기자회견|촉구|주장|밝혔다|제안/.test(text)) {
+    return { quality: "하", basis: "보도자료 단순 전재 가능성이 높음" };
+  }
+  if (/인터뷰|말했다|설명했다|덧붙였다|관계자는|활동가/.test(text)) {
+    return { quality: "중", basis: "보도자료 외 인터뷰나 추가 설명 가능성" };
+  }
+  if (/단독|취재|현장|논란|추적|분석|왜|어떻게|확인/.test(text)) {
+    return { quality: "상", basis: "별도 취재 또는 분석 기사 가능성" };
+  }
+  return { quality: "미분류", basis: "관리자 확인 필요" };
+}
+
+async function fileToPayload(file) {
+  const buffer = await file.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  bytes.forEach((byte) => {
+    binary += String.fromCharCode(byte);
+  });
+  return {
+    name: file.name,
+    mimeType: file.type,
+    base64: btoa(binary)
+  };
+}
+
 function formatDate(value) {
   if (!value) return "날짜 미정";
   return value.replaceAll("-", ".");
@@ -1366,18 +1596,30 @@ function makeId(prefix) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function loadRole() {
+function normalizeSeed(value) {
+  return normalize(value).replace(/[^\p{L}\p{N}]+/gu, "-");
+}
+
+function isViewerRoute() {
   const params = new URLSearchParams(window.location.search);
-  const role = params.get("role") || localStorage.getItem(ROLE_STORAGE_KEY);
-  return role === "viewer" ? "viewer" : "admin";
+  return params.get("view") === "viewer" || params.get("role") === "viewer";
+}
+
+function loadRole() {
+  if (isViewerRoute()) return "viewer";
+  return localStorage.getItem(ADMIN_PASSWORD_STORAGE_KEY) ? "admin" : "locked";
 }
 
 function loadArticles() {
   const loaded = loadCollection(ARTICLE_STORAGE_KEY, cloneSeedArticles, LEGACY_ARTICLE_STORAGE_KEY);
   return loaded.map((article) => ({
-    sourceType: "media",
+    ...article,
+    sourceType: article.sourceType || "media",
     matchedProgram: article.matchedProgram || "program-citytreeclub-2026",
-    ...article
+    programName: article.programName || "나무의 권리 재인식 플랫폼: 시티트리클럽",
+    programCategory: article.programCategory || "생태도시",
+    quality: article.quality || "미분류",
+    qualityBasis: article.qualityBasis || "관리자 확인 필요"
   }));
 }
 
@@ -1401,6 +1643,10 @@ function cloneDefaultKeywords() {
   return DEFAULT_KEYWORDS.map((keyword) => ({ ...keyword }));
 }
 
+function cloneDefaultPrograms() {
+  return DEFAULT_PROGRAMS.map((program) => ({ ...program }));
+}
+
 function saveArticles() {
   localStorage.setItem(ARTICLE_STORAGE_KEY, JSON.stringify(state.articles));
 }
@@ -1411,6 +1657,10 @@ function saveKeywords() {
 
 function savePlans() {
   localStorage.setItem(PLAN_STORAGE_KEY, JSON.stringify(state.plans));
+}
+
+function savePrograms() {
+  localStorage.setItem(PROGRAM_STORAGE_KEY, JSON.stringify(state.programs));
 }
 
 let toastTimer;

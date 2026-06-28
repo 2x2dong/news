@@ -1,7 +1,7 @@
 const SHEET_SCHEMA = {
   users: ["email", "role", "name", "active"],
   plans: ["year", "title", "source_url", "imported_at", "raw_text_file", "raw_text_length"],
-  programs: ["program_id", "year", "name", "goal", "change_goal", "indicators", "owners", "partners", "active"],
+  programs: ["program_id", "year", "name", "category", "goal", "change_goal", "indicators", "owners", "partners", "active"],
   keywords: ["keyword_id", "keyword", "type", "source", "active", "notes"],
   items: [
     "item_id",
@@ -18,7 +18,12 @@ const SHEET_SCHEMA = {
     "ai_basis",
     "review_status",
     "include_in_press_count",
-    "representative"
+    "representative",
+    "program_id",
+    "program_name",
+    "program_category",
+    "quality",
+    "quality_basis"
   ],
   matches: ["match_id", "item_id", "program_id", "match_type", "confidence", "basis", "reviewed_by", "reviewed_at"],
   fetch_runs: ["run_id", "started_at", "finished_at", "trigger", "query_count", "item_count", "status", "notes"]
@@ -40,6 +45,10 @@ function doPost(event) {
     return jsonResponse_(bootstrapAdminToken_(body.token));
   }
 
+  if (action === "authCheck") {
+    return jsonResponse_(authCheck_(body));
+  }
+
   const actor = getActor_(body);
 
   if (!actor.canWrite) {
@@ -53,6 +62,14 @@ function doPost(event) {
 
   if (action === "importPlan") {
     return jsonResponse_(importPlan_(body));
+  }
+
+  if (action === "fetchNews") {
+    return jsonResponse_(fetchNews_(body));
+  }
+
+  if (action === "setAdminPassword") {
+    return jsonResponse_(setAdminPassword_(body.password));
   }
 
   if (action === "reviewItem") {
@@ -82,6 +99,24 @@ function setAdminToken(token) {
   if (!token) throw new Error("token is required");
   PropertiesService.getScriptProperties().setProperty("ADMIN_TOKEN", String(token));
   return { ok: true, updatedAt: new Date().toISOString() };
+}
+
+function setAdminPassword(password) {
+  return setAdminPassword_(password);
+}
+
+function setAdminPassword_(password) {
+  const value = String(password || "").trim();
+  if (value.length < 8) {
+    return { ok: false, error: "password must be at least 8 characters" };
+  }
+  PropertiesService.getScriptProperties().setProperty("ADMIN_PASSWORD", value);
+  return { ok: true, action: "setAdminPassword", updatedAt: new Date().toISOString() };
+}
+
+function authCheck_(body) {
+  const actor = getActor_(body);
+  return { ok: actor.canWrite, role: actor.role || "", checkedAt: new Date().toISOString() };
 }
 
 function bootstrapAdminToken_(token) {
@@ -145,11 +180,11 @@ function importPlan_(body) {
   const year = String(body.year || new Date().getFullYear());
   const title = String(body.title || "사업계획서");
   const sourceUrl = String(body.sourceUrl || "");
-  const rawText = readPlanText_(sourceUrl, body.rawText || "");
+  const rawText = readPlanText_(sourceUrl, body.rawText || "", body.file || null);
   const importedAt = new Date().toISOString();
 
   if (!rawText) {
-    return { ok: false, error: "사업계획서 본문을 읽지 못했습니다. 문서 접근 권한 또는 본문 입력을 확인해주세요." };
+    return { ok: false, error: "사업계획서 본문을 읽지 못했습니다. Google Docs 권한 또는 PDF/DOCX 파일을 확인해주세요." };
   }
 
   upsertRows_(
@@ -160,12 +195,20 @@ function importPlan_(body) {
         title,
         source_url: sourceUrl,
         imported_at: importedAt,
-        raw_text_file: "",
+        raw_text_file: body.file && body.file.name ? body.file.name : "",
         raw_text_length: rawText.length
       }
     ],
     "year"
   );
+
+  const programRows = uniquePrograms_([
+    ...extractPrograms_(rawText, year),
+    ...buildDefaultPrograms_(year)
+  ]);
+  if (programRows.length) {
+    upsertRows_("programs", programRows, "program_id");
+  }
 
   const existingKeywords = readRows_("keywords");
   const existingKeywordKeys = {};
@@ -205,34 +248,9 @@ function importPlan_(body) {
     "서울환경운동연합",
     ...keywordRows.filter((row) => row.type === "캠페인명").map((row) => row.keyword)
   ]).slice(0, 24);
-  const existingItems = readRows_("items");
-  const existingItemIds = {};
-  existingItems.forEach((row) => {
-    existingItemIds[row.item_id] = true;
-  });
-
-  const newsItems = collectNewsCandidates_(searchTerms, "2026-01-01", 5, 90);
-  const newItems = newsItems.filter((item) => !existingItemIds[item.item_id]);
-  if (newItems.length) {
-    upsertRows_("items", newItems, "item_id");
-  }
-
-  upsertRows_(
-    "fetch_runs",
-    [
-      {
-        run_id: `import-${year}-${hashString_(importedAt)}`,
-        started_at: importedAt,
-        finished_at: new Date().toISOString(),
-        trigger: "plan-import",
-        query_count: searchTerms.length,
-        item_count: newItems.length,
-        status: "ready",
-        notes: `${title} 업로드 후 Google News 후보 수집`
-      }
-    ],
-    "run_id"
-  );
+  const collection = collectAndStoreNews_(searchTerms, year, "plan-import");
+  const newsItems = collection.newsItems;
+  const newItems = collection.newItems;
 
   const snapshot = readSnapshot_();
   const actualKeywordAdded = (snapshot.sheets.keywords || []).filter(
@@ -245,15 +263,72 @@ function importPlan_(body) {
     rawTextLength: rawText.length,
     keywordsExtracted: extractedTerms.length,
     keywordsAdded: actualKeywordAdded,
+    programsExtracted: programRows.filter((row) => row.partners !== "기본 분류").length,
     itemsFound: newsItems.length,
     itemsAdded: newItems.length,
     sheets: snapshot.sheets
   };
 }
 
-function readPlanText_(sourceUrl, rawText) {
+function fetchNews_(body) {
+  const year = String(body.year || new Date().getFullYear());
+  const activeKeywords = readRows_("keywords")
+    .filter((row) => String(row.active).toLowerCase() !== "false")
+    .map((row) => row.keyword);
+  const searchTerms = unique_(["서울환경연합", "서울환경운동연합", ...activeKeywords]).slice(0, 32);
+  const collection = collectAndStoreNews_(searchTerms, year, "manual-fetch");
+  const snapshot = readSnapshot_();
+  return {
+    ok: true,
+    action: "fetchNews",
+    year,
+    queryCount: searchTerms.length,
+    itemsFound: collection.newsItems.length,
+    itemsAdded: collection.newItems.length,
+    sheets: snapshot.sheets
+  };
+}
+
+function collectAndStoreNews_(searchTerms, year, trigger) {
+  const existingItems = readRows_("items");
+  const existingItemIds = {};
+  existingItems.forEach((row) => {
+    existingItemIds[row.item_id] = true;
+  });
+
+  const programs = readRows_("programs");
+  const newsItems = collectNewsCandidates_(searchTerms, "2026-01-01", 5, 90, programs);
+  const newItems = newsItems.filter((item) => !existingItemIds[item.item_id]);
+  if (newItems.length) {
+    upsertRows_("items", newItems, "item_id");
+  }
+
+  upsertRows_(
+    "fetch_runs",
+    [
+      {
+        run_id: `${trigger}-${year}-${hashString_(new Date().toISOString())}`,
+        started_at: new Date().toISOString(),
+        finished_at: new Date().toISOString(),
+        trigger,
+        query_count: searchTerms.length,
+        item_count: newItems.length,
+        status: "ready",
+        notes: `${trigger} 후보 수집`
+      }
+    ],
+    "run_id"
+  );
+
+  return { newsItems, newItems };
+}
+
+function readPlanText_(sourceUrl, rawText, file) {
   const providedText = String(rawText || "").trim();
   if (providedText) return providedText;
+
+  const fileText = readPlanFileText_(file);
+  if (fileText) return fileText;
 
   const docId = extractGoogleDocId_(sourceUrl);
   if (!docId) return "";
@@ -274,9 +349,170 @@ function readPlanText_(sourceUrl, rawText) {
   return "";
 }
 
+function readPlanFileText_(file) {
+  if (!file || !file.base64) return "";
+  const name = String(file.name || "plan");
+  const mimeType = String(file.mimeType || "");
+  const bytes = Utilities.base64Decode(String(file.base64 || ""));
+
+  if (name.toLowerCase().endsWith(".docx") || mimeType.indexOf("wordprocessingml") !== -1) {
+    return readDocxText_(bytes);
+  }
+
+  if (name.toLowerCase().endsWith(".pdf") || mimeType === "application/pdf") {
+    return readPdfText_(bytes, name);
+  }
+
+  return "";
+}
+
+function readDocxText_(bytes) {
+  try {
+    const blobs = Utilities.unzip(Utilities.newBlob(bytes, "application/zip", "plan.docx"));
+    const documentXml = blobs.find((blob) => blob.getName() === "word/document.xml");
+    if (!documentXml) return "";
+    return documentXml
+      .getDataAsString()
+      .replace(/<w:tab\/>/g, "\t")
+      .replace(/<\/w:p>/g, "\n")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&amp;/g, "&")
+      .replace(/\s+\n/g, "\n")
+      .replace(/[ \t]+/g, " ")
+      .trim();
+  } catch (error) {
+    return "";
+  }
+}
+
+function readPdfText_(bytes, name) {
+  try {
+    if (typeof Drive === "undefined" || !Drive.Files || !Drive.Files.insert) return "";
+    const blob = Utilities.newBlob(bytes, "application/pdf", name || "plan.pdf");
+    const file = Drive.Files.insert(
+      { title: `news-dashboard-plan-${Date.now()}` },
+      blob,
+      { convert: true, ocr: true, ocrLanguage: "ko" }
+    );
+    const text = DocumentApp.openById(file.id).getBody().getText();
+    Drive.Files.remove(file.id);
+    return String(text || "").trim();
+  } catch (error) {
+    return "";
+  }
+}
+
 function extractGoogleDocId_(url) {
   const match = String(url || "").match(/\/document\/d\/([a-zA-Z0-9_-]+)/);
   return match ? match[1] : "";
+}
+
+function extractPrograms_(text, year) {
+  const lines = String(text || "")
+    .split(/\r?\n+/)
+    .map((line) => cleanCandidate_(line))
+    .filter(Boolean);
+  const programs = [];
+
+  lines.forEach((line, index) => {
+    if (line !== "사업명") return;
+    const name = nextContentLine_(lines, index + 1);
+    if (!isProgramName_(name)) return;
+    programs.push(makeProgramRow_(year, name, "사업계획서"));
+  });
+
+  lines.slice(0, 80).forEach((line) => {
+    const name = cleanCandidate_(line.replace(/\s+\d+$/, ""));
+    if (isProgramName_(name)) programs.push(makeProgramRow_(year, name, "목차"));
+  });
+
+  return uniquePrograms_(programs).slice(0, 80);
+}
+
+function nextContentLine_(lines, startIndex) {
+  const sectionHeaders = [
+    "핵심목표",
+    "변화목표",
+    "관찰지표",
+    "활동명",
+    "활동내용",
+    "산출지표",
+    "내부 담당",
+    "연대/협력",
+    "예산",
+    "조달 계획"
+  ];
+  for (let index = startIndex; index < lines.length; index += 1) {
+    const line = cleanCandidate_(lines[index]);
+    if (!line || sectionHeaders.indexOf(line) !== -1) continue;
+    return line;
+  }
+  return "";
+}
+
+function isProgramName_(name) {
+  const value = cleanCandidate_(name);
+  if (value.length < 4 || value.length > 54) return false;
+  if (/^\d+$/.test(value)) return false;
+  if (["탭 1", "TF", "사업명", "핵심목표", "활동명"].indexOf(value) !== -1) return false;
+  if (/[0-9,]+명|[0-9,]+건|[0-9]+회|[0-9]+원/.test(value)) return false;
+  return /[가-힣A-Za-z]/.test(value);
+}
+
+function makeProgramRow_(year, name, source) {
+  const category = inferProgramCategory_(name);
+  return {
+    program_id: `program-${year}-${hashString_(name)}`,
+    year,
+    name,
+    category,
+    goal: "",
+    change_goal: "",
+    indicators: "",
+    owners: "",
+    partners: source,
+    active: true
+  };
+}
+
+function buildDefaultPrograms_(year) {
+  return ["생태도시", "기후행동", "자원순환", "시민참여", "모금", "기타"].map((category) => ({
+    program_id: `program-${year}-category-${hashString_(category)}`,
+    year,
+    name: `${category} 정책 대응`,
+    category,
+    goal: "사업계획서에 없는 돌발 현장 대응 기사 분류",
+    change_goal: "",
+    indicators: "",
+    owners: "",
+    partners: "기본 분류",
+    active: true
+  }));
+}
+
+function uniquePrograms_(programs) {
+  const seen = {};
+  return programs.filter((program) => {
+    const key = normalizeKey_(program.name);
+    if (!key || seen[key]) return false;
+    seen[key] = true;
+    return true;
+  });
+}
+
+function inferProgramCategory_(text) {
+  const value = normalizeKey_(text);
+  const rules = [
+    { category: "자원순환", words: ["플라스틱", "제로웨이스트", "수리", "자원순환", "쓰레기", "재활용", "다회용", "리필"] },
+    { category: "기후행동", words: ["기후", "태양광", "에너지", "교통", "자전거", "산불", "탄소", "발전"] },
+    { category: "생태도시", words: ["가로수", "나무", "숲", "공원", "한강", "생태", "난개발", "노들섬", "도시"] },
+    { category: "시민참여", words: ["시민", "참여", "캠페인", "교육", "워크숍", "회원", "브랜딩", "온라인채널"] },
+    { category: "모금", words: ["모금", "후원", "파트너십", "기금", "다이렉트", "리드", "tm", "기업"] }
+  ];
+  const match = rules.find((rule) => rule.words.some((word) => value.indexOf(normalizeKey_(word)) !== -1));
+  return match ? match.category : "기타";
 }
 
 function extractKeywordCandidates_(text) {
@@ -457,9 +693,10 @@ function isPotentialCampaignTitleLine_(line) {
   ].some((word) => prefix.indexOf(word) !== -1);
 }
 
-function collectNewsCandidates_(terms, startDate, perKeywordLimit, totalLimit) {
+function collectNewsCandidates_(terms, startDate, perKeywordLimit, totalLimit, programs) {
   const results = [];
   const seen = {};
+  const programRows = Array.isArray(programs) ? programs : [];
 
   terms.forEach((term) => {
     if (results.length >= totalLimit) return;
@@ -489,6 +726,8 @@ function collectNewsCandidates_(terms, startDate, perKeywordLimit, totalLimit) {
       if (seen[id]) return;
       seen[id] = true;
       addedForTerm += 1;
+      const programMatch = matchProgram_(item, term, programRows);
+      const quality = inferArticleQuality_(item);
 
       results.push({
         item_id: id,
@@ -505,12 +744,47 @@ function collectNewsCandidates_(terms, startDate, perKeywordLimit, totalLimit) {
         ai_basis: `Google News RSS 후보: ${term}`,
         review_status: "needs-review",
         include_in_press_count: false,
-        representative: false
+        representative: false,
+        program_id: programMatch.program_id,
+        program_name: programMatch.name,
+        program_category: programMatch.category,
+        quality: quality.quality,
+        quality_basis: quality.basis
       });
     });
   });
 
   return results;
+}
+
+function matchProgram_(item, term, programs) {
+  const haystack = normalizeKey_([item.title, item.description, term].join(" "));
+  const activePrograms = programs.filter((program) => String(program.active).toLowerCase() !== "false");
+  const direct = activePrograms.find((program) => haystack.indexOf(normalizeKey_(program.name)) !== -1);
+  if (direct) return direct;
+
+  const category = inferProgramCategory_(haystack);
+  const fallback = activePrograms.find((program) => program.category === category) ||
+    activePrograms.find((program) => program.category === "기타") ||
+    { program_id: "", name: "기타 정책 대응", category: "기타" };
+  return fallback;
+}
+
+function inferArticleQuality_(item) {
+  const text = normalizeKey_([item.title, item.description].join(" "));
+  if (/(포토|사진|화보|캡션|tf사진관|현장사진)/i.test([item.title, item.description].join(" "))) {
+    return { quality: "하", basis: "사진·캡션 중심 기사로 추정" };
+  }
+  if (text.indexOf(normalizeKey_("서울환경연합")) !== -1 && /(발행|성명|논평|기자회견|촉구|주장|밝혔다|제안)/.test(item.title)) {
+    return { quality: "하", basis: "보도자료 단순 전재 가능성이 높음" };
+  }
+  if (/(인터뷰|말했다|설명했다|덧붙였다|관계자는|활동가)/.test([item.title, item.description].join(" "))) {
+    return { quality: "중", basis: "보도자료 외 인터뷰나 추가 설명 가능성" };
+  }
+  if (/(단독|취재|현장|논란|추적|분석|왜|어떻게|확인)/.test([item.title, item.description].join(" "))) {
+    return { quality: "상", basis: "별도 취재 또는 분석 기사 가능성" };
+  }
+  return { quality: "미분류", basis: "관리자 확인 필요" };
 }
 
 function parseGoogleNewsItems_(xml) {
@@ -602,11 +876,18 @@ function ensureSheets_() {
     let sheet = spreadsheet.getSheetByName(sheetName);
     if (!sheet) sheet = spreadsheet.insertSheet(sheetName);
     const headers = SHEET_SCHEMA[sheetName];
-    const currentHeaders = sheet.getRange(1, 1, 1, headers.length).getValues()[0];
+    const width = Math.max(sheet.getLastColumn(), headers.length, 1);
+    const currentHeaders = sheet.getRange(1, 1, 1, width).getValues()[0].filter(String);
     if (currentHeaders.join("") === "") {
       sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
       sheet.setFrozenRows(1);
+      return;
     }
+    const missingHeaders = headers.filter((header) => currentHeaders.indexOf(header) === -1);
+    if (missingHeaders.length) {
+      sheet.getRange(1, currentHeaders.length + 1, 1, missingHeaders.length).setValues([missingHeaders]);
+    }
+    sheet.setFrozenRows(1);
   });
 }
 
@@ -615,11 +896,14 @@ function readRows_(sheetName) {
   const headers = SHEET_SCHEMA[sheetName];
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return [];
-  const values = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
+  const width = Math.max(sheet.getLastColumn(), headers.length);
+  const actualHeaders = sheet.getRange(1, 1, 1, width).getValues()[0];
+  const values = sheet.getRange(2, 1, lastRow - 1, width).getValues();
   return values.map((row) => {
     const item = {};
-    headers.forEach((header, index) => {
-      item[header] = row[index];
+    headers.forEach((header) => {
+      const index = actualHeaders.indexOf(header);
+      item[header] = index === -1 ? "" : row[index];
     });
     return item;
   });
@@ -648,6 +932,9 @@ function upsertRows_(sheetName, rows, keyColumn) {
 }
 
 function getActor_(body) {
+  const scriptPassword = PropertiesService.getScriptProperties().getProperty("ADMIN_PASSWORD");
+  if (scriptPassword && body.password === scriptPassword) return { email: "password-admin", role: "admin", canWrite: true };
+
   const scriptToken = PropertiesService.getScriptProperties().getProperty("ADMIN_TOKEN");
   if (scriptToken && body.token === scriptToken) return { email: "token-admin", role: "admin", canWrite: true };
 

@@ -11,7 +11,7 @@
     },
     "programs": {
       "description": "사업 단위",
-      "columns": ["program_id", "year", "name", "goal", "change_goal", "indicators", "owners", "partners", "active"]
+      "columns": ["program_id", "year", "name", "category", "goal", "change_goal", "indicators", "owners", "partners", "active"]
     },
     "keywords": {
       "description": "검색어와 캠페인명",
@@ -34,7 +34,12 @@
         "ai_basis",
         "review_status",
         "include_in_press_count",
-        "representative"
+        "representative",
+        "program_id",
+        "program_name",
+        "program_category",
+        "quality",
+        "quality_basis"
       ]
     },
     "matches": {

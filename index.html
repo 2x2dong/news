@@ -19,10 +19,19 @@
         </p>
       </div>
       <div class="topbar-actions" aria-label="대시보드 작업">
-        <div class="role-switch" aria-label="권한 모드">
-          <button class="role-button active" type="button" data-role="admin">관리자</button>
-          <button class="role-button" type="button" data-role="viewer">보기 전용</button>
-        </div>
+        <form class="login-form" id="adminLoginForm" data-viewer-hidden>
+          <input type="text" name="username" value="admin" autocomplete="username" hidden />
+          <label>
+            <span>관리자 비밀번호</span>
+            <input id="adminPasswordInput" type="password" autocomplete="current-password" placeholder="비밀번호" />
+          </label>
+          <button class="button primary" id="adminLoginButton" type="submit">관리자 로그인</button>
+          <button class="button secondary" id="adminLogoutButton" type="button" hidden>로그아웃</button>
+        </form>
+        <button class="button secondary" id="copyViewerLinkButton" type="button" data-admin-only>
+          <span aria-hidden="true">⧉</span>
+          보기 링크
+        </button>
         <button class="button secondary" id="resetDataButton" type="button" data-admin-only>
           <span aria-hidden="true">↺</span>
           샘플 복원
@@ -30,10 +39,6 @@
         <button class="button secondary" id="exportJsonButton" type="button">
           <span aria-hidden="true">⇩</span>
           JSON
-        </button>
-        <button class="button primary" id="copyReportButton" type="button">
-          <span aria-hidden="true">⧉</span>
-          요약 복사
         </button>
       </div>
     </header>
@@ -119,10 +124,22 @@
             <div id="keywordBars" class="bar-list" aria-label="키워드별 기사 수"></div>
           </section>
 
-          <section class="panel-section report-section">
-            <h2>평가용 요약</h2>
-            <textarea id="reportText" readonly aria-label="평가용 요약 문장"></textarea>
-            <p class="hint">기사 원문을 그대로 복사하지 않고, 공개 기사 제목과 검토 상태를 바탕으로 초안을 만듭니다.</p>
+          <section class="panel-section">
+            <h2>사업 분류</h2>
+            <label class="field">
+              <span>사업</span>
+              <select id="programSelect"></select>
+            </label>
+            <label class="field">
+              <span>기사 품질</span>
+              <select id="qualitySelect">
+                <option value="all">전체</option>
+                <option value="상">상</option>
+                <option value="중">중</option>
+                <option value="하">하</option>
+                <option value="미분류">미분류</option>
+              </select>
+            </label>
           </section>
         </aside>
 
@@ -178,6 +195,7 @@
                   <th>기사</th>
                   <th>출처</th>
                   <th>판정 근거</th>
+                  <th>사업/품질</th>
                   <th>집계</th>
                   <th>검토</th>
                 </tr>
@@ -208,6 +226,7 @@
           </div>
           <div class="admin-actions">
             <button class="button secondary" id="loadSheetsButton" type="button">구글시트 불러오기</button>
+            <button class="button secondary" id="fetchNewsButton" type="button">기사 수동 수집</button>
             <button class="button secondary" id="exportSheetsButton" type="button">시트용 JSON</button>
             <button class="button primary" id="syncSheetsButton" type="button">구글시트 저장</button>
           </div>
@@ -234,11 +253,7 @@
                 <dd id="sheetLink">미설정</dd>
               </div>
             </dl>
-            <label class="field">
-              <span>관리자 토큰</span>
-              <input id="adminTokenInput" type="password" autocomplete="off" placeholder="Google Apps Script 관리자 토큰" />
-            </label>
-            <p class="hint">토큰은 이 브라우저에만 저장됩니다. GitHub나 Vercel 코드에는 저장하지 않습니다.</p>
+            <p class="hint">관리자 쓰기 기능은 사무처 내부 공유 비밀번호로 접근합니다. 보기 링크는 링크를 아는 사람이 열람할 수 있습니다.</p>
           </section>
 
           <section class="admin-section">
@@ -257,12 +272,17 @@
                 <input id="planUrl" type="url" placeholder="https://docs.google.com/document/..." />
               </label>
               <label class="wide">
-                <span>본문</span>
-                <textarea id="planText" rows="8" placeholder="사업계획서 본문을 붙여넣기"></textarea>
+                <span>PDF 또는 DOCX 파일</span>
+                <input id="planFile" type="file" accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
               </label>
-              <button class="button primary wide" type="submit">업로드 및 검색어 생성</button>
+              <button class="button primary wide" type="submit">업로드 및 사업/검색어 생성</button>
             </form>
             <div id="planImportResult" class="admin-result"></div>
+          </section>
+
+          <section class="admin-section">
+            <h3>사업 목록</h3>
+            <div id="programList" class="program-admin-list"></div>
           </section>
 
           <section class="admin-section">

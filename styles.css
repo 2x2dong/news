@@ -86,32 +86,31 @@ button {
   justify-content: flex-end;
 }
 
-.role-switch {
-  display: inline-grid;
-  grid-template-columns: repeat(2, minmax(88px, 1fr));
-  overflow: hidden;
+.login-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: flex-end;
+  justify-content: flex-end;
+}
+
+.login-form label {
+  display: grid;
+  gap: 5px;
+  min-width: 190px;
+}
+
+.login-form span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.login-form input {
+  min-height: 40px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: #f4f7f8;
-}
-
-.role-button {
-  min-height: 40px;
-  border: 0;
-  border-right: 1px solid var(--border);
-  background: transparent;
-  color: var(--muted);
   padding: 8px 10px;
-  font-weight: 850;
-}
-
-.role-button:last-child {
-  border-right: 0;
-}
-
-.role-button.active {
-  background: var(--ink);
-  color: white;
 }
 
 .button {
@@ -561,6 +560,16 @@ tbody tr.selected {
   padding: 6px 8px;
 }
 
+.compact-select {
+  width: 100%;
+  min-width: 150px;
+  margin-bottom: 6px;
+}
+
+.program-quality-cell {
+  min-width: 170px;
+}
+
 .detail-panel {
   margin: 18px;
   padding: 18px;
@@ -634,7 +643,7 @@ tbody tr.selected {
 
 .admin-grid {
   display: grid;
-  grid-template-columns: minmax(240px, 0.75fr) minmax(320px, 1.1fr) minmax(320px, 1fr);
+  grid-template-columns: minmax(230px, 0.8fr) minmax(320px, 1.1fr) minmax(260px, 0.9fr) minmax(300px, 1fr);
   gap: 0;
 }
 
@@ -665,7 +674,8 @@ tbody tr.selected {
 }
 
 .admin-result,
-.keyword-admin-list {
+.keyword-admin-list,
+.program-admin-list {
   display: grid;
   gap: 8px;
   margin-top: 12px;
@@ -676,7 +686,8 @@ tbody tr.selected {
   font-size: 13px;
 }
 
-.keyword-row {
+.keyword-row,
+.program-row {
   display: grid;
   grid-template-columns: minmax(120px, 1fr) 92px 82px;
   gap: 8px;
@@ -691,10 +702,15 @@ tbody tr.selected {
   color: var(--ink);
 }
 
-.keyword-row small {
+.keyword-row small,
+.program-row small {
   display: block;
   margin-top: 3px;
   color: var(--muted);
+}
+
+.program-row {
+  grid-template-columns: minmax(120px, 1fr) 72px;
 }
 
 .keyword-toggle {
@@ -713,8 +729,12 @@ tbody tr.selected {
 }
 
 body[data-role="viewer"] [data-admin-only],
+body[data-role="locked"] [data-admin-only],
 body[data-role="viewer"] .add-article,
-body[data-role="viewer"] #adminPanel {
+body[data-role="locked"] .add-article,
+body[data-role="viewer"] #adminPanel,
+body[data-role="locked"] #adminPanel,
+body[data-role="viewer"] [data-viewer-hidden] {
   display: none;
 }
 
@@ -769,7 +789,8 @@ body[data-role="viewer"] #adminPanel {
 
   .button,
   .topbar-actions .button,
-  .role-switch,
+  .login-form,
+  .login-form label,
   .admin-actions .button {
     width: 100%;
   }
