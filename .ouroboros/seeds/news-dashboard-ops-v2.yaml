@@ -48,10 +48,13 @@ press_release_source:
   url: "http://seoulkfem.or.kr/news"
   purpose: "서울환경연합 발송 보도자료 기반 기사인지 판정할 때 참고한다."
 collection_expansion:
+  strategy:
+    - "지정 검색어를 단독으로 먼저 검색한 뒤 사업을 매칭한다."
+    - "조직명+캠페인명 검색은 누락 보강용으로 뒤에 실행한다."
   sources:
     - "Google News RSS"
     - "Google News의 n.news.naver.com 제한 검색"
     - "Google News의 v.daum.net 제한 검색"
     - "네이버뉴스 직접 검색"
-  per_keyword_limit: 18
-  total_limit: 300
+  per_keyword_limit: 35
+  total_limit: 700

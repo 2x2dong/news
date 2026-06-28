@@ -302,7 +302,7 @@ function collectAndStoreNews_(searchTerms, year, trigger) {
   });
 
   const programs = normalizeProgramRows_(readRows_("programs"));
-  const newsItems = collectNewsCandidates_(searchTerms, "2026-01-01", 18, 300, programs);
+  const newsItems = collectNewsCandidates_(searchTerms, "2026-01-01", 35, 700, programs);
   const newItems = newsItems.filter((item) => {
     const dedupeKey = getItemDedupeKey_(item);
     return !existingById[item.item_id] && (!dedupeKey || !existingByDedupeKey[dedupeKey]);
@@ -916,15 +916,16 @@ function collectNewsCandidates_(terms, startDate, perKeywordLimit, totalLimit, p
 function buildNewsQueries_(term, startDate) {
   const queries = [];
   const quoted = `"${term}"`;
-  queries.push({ query: `${quoted} after:${startDate}`, label: "Google News" });
-  queries.push({ query: `${quoted} site:n.news.naver.com after:${startDate}`, label: "네이버뉴스" });
-  queries.push({ query: `${quoted} site:v.daum.net after:${startDate}`, label: "다음뉴스" });
+  queries.push({ query: `${quoted} after:${startDate}`, label: "지정 검색어 정확 검색" });
+  queries.push({ query: `${term} after:${startDate}`, label: "지정 검색어 일반 검색" });
+  queries.push({ query: `${quoted} site:n.news.naver.com after:${startDate}`, label: "네이버뉴스 지정 검색어" });
+  queries.push({ query: `${quoted} site:v.daum.net after:${startDate}`, label: "다음뉴스 지정 검색어" });
 
   if (!isOrganizationKeyword_(term)) {
-    queries.push({ query: `"서울환경연합" ${quoted} after:${startDate}`, label: "조직명+검색어" });
-    queries.push({ query: `"서울환경운동연합" ${quoted} after:${startDate}`, label: "조직명+검색어" });
-    queries.push({ query: `"서울환경연합" ${quoted} site:n.news.naver.com after:${startDate}`, label: "네이버뉴스 조직명+검색어" });
-    queries.push({ query: `"서울환경연합" ${quoted} site:v.daum.net after:${startDate}`, label: "다음뉴스 조직명+검색어" });
+    queries.push({ query: `"서울환경연합" ${quoted} after:${startDate}`, label: "조직명+검색어 보강" });
+    queries.push({ query: `"서울환경운동연합" ${quoted} after:${startDate}`, label: "조직명+검색어 보강" });
+    queries.push({ query: `"서울환경연합" ${quoted} site:n.news.naver.com after:${startDate}`, label: "네이버뉴스 조직명+검색어 보강" });
+    queries.push({ query: `"서울환경연합" ${quoted} site:v.daum.net after:${startDate}`, label: "다음뉴스 조직명+검색어 보강" });
   }
 
   return queries;
@@ -937,10 +938,10 @@ function fetchNaverNewsItems_(term, startDate) {
   const endDate = Utilities.formatDate(new Date(), "Asia/Seoul", "yyyy-MM-dd");
   const de = endDate.replace(/-/g, ".");
   const compactEnd = endDate.replace(/-/g, "");
-  const starts = [1, 11];
+  const starts = [1, 11, 21, 31, 41];
   const queries = isOrganizationKeyword_(term)
-    ? [term]
-    : [`서울환경연합 ${term}`, `서울환경운동연합 ${term}`, term];
+    ? unique_([term, `"${term}"`])
+    : unique_([term, `"${term}"`, `${term} 서울환경연합`, `${term} 서울환경운동연합`, `서울환경연합 ${term}`, `서울환경운동연합 ${term}`]);
   const items = [];
   const seen = {};
 
