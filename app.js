@@ -411,6 +411,8 @@ function renderRole() {
   els.adminPasswordInput.value = isAdmin ? "••••••••" : "";
   els.adminPasswordInput.disabled = isAdmin || isViewer;
   els.adminLoginButton.hidden = isAdmin || isViewer;
+  els.adminLoginButton.disabled = false;
+  els.adminLoginButton.textContent = "관리자 로그인";
   els.adminLogoutButton.hidden = !isAdmin;
 }
 
@@ -928,6 +930,11 @@ async function adminLogin(event) {
     return;
   }
 
+  els.adminLoginButton.disabled = true;
+  els.adminLoginButton.textContent = "확인 중...";
+  els.adminPasswordInput.disabled = true;
+  showToast("관리자 비밀번호를 확인하고 있습니다.");
+
   try {
     const response = await fetch(APP_CONFIG.appsScriptEndpoint, {
       method: "POST",
@@ -943,6 +950,9 @@ async function adminLogin(event) {
     showToast("관리자 모드로 전환했습니다.");
   } catch (error) {
     localStorage.removeItem(ADMIN_PASSWORD_STORAGE_KEY);
+    els.adminLoginButton.disabled = false;
+    els.adminLoginButton.textContent = "관리자 로그인";
+    els.adminPasswordInput.disabled = false;
     showToast("비밀번호가 맞지 않습니다.");
   }
 }
