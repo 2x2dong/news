@@ -18,7 +18,7 @@
       "columns": ["keyword_id", "keyword", "type", "source", "active", "notes"]
     },
     "items": {
-      "description": "기사와 외부 게시물",
+      "description": "언론사 기사",
       "columns": [
         "item_id",
         "title",

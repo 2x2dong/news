@@ -266,6 +266,7 @@ function importPlan_(body) {
     programsExtracted: programRows.filter((row) => row.partners !== "기본 분류").length,
     itemsFound: newsItems.length,
     itemsAdded: newItems.length,
+    itemsUpdated: collection.refreshItems.length,
     sheets: snapshot.sheets
   };
 }
@@ -285,22 +286,39 @@ function fetchNews_(body) {
     queryCount: searchTerms.length,
     itemsFound: collection.newsItems.length,
     itemsAdded: collection.newItems.length,
+    itemsUpdated: collection.refreshItems.length,
     sheets: snapshot.sheets
   };
 }
 
 function collectAndStoreNews_(searchTerms, year, trigger) {
   const existingItems = normalizeItemRows_(readRows_("items"));
-  const existingItemIds = {};
+  const existingById = {};
+  const existingByDedupeKey = {};
   existingItems.forEach((row) => {
-    existingItemIds[row.item_id] = true;
+    existingById[row.item_id] = row;
+    const dedupeKey = getItemDedupeKey_(row);
+    if (dedupeKey) existingByDedupeKey[dedupeKey] = row.item_id;
   });
 
   const programs = normalizeProgramRows_(readRows_("programs"));
-  const newsItems = collectNewsCandidates_(searchTerms, "2026-01-01", 5, 90, programs);
-  const newItems = newsItems.filter((item) => !existingItemIds[item.item_id]);
-  if (newItems.length) {
-    upsertRows_("items", newItems, "item_id");
+  const newsItems = collectNewsCandidates_(searchTerms, "2026-01-01", 18, 300, programs);
+  const newItems = newsItems.filter((item) => {
+    const dedupeKey = getItemDedupeKey_(item);
+    return !existingById[item.item_id] && (!dedupeKey || !existingByDedupeKey[dedupeKey]);
+  });
+  const refreshItems = newsItems
+    .map((item) => {
+      const dedupeKey = getItemDedupeKey_(item);
+      const existingId = existingById[item.item_id] ? item.item_id : existingByDedupeKey[dedupeKey];
+      const existing = existingId ? existingById[existingId] : null;
+      if (!existing || !shouldRefreshAutoItem_(existing)) return null;
+      return Object.assign({}, existing, item, { item_id: existing.item_id });
+    })
+    .filter(Boolean);
+  const rowsToWrite = [...newItems, ...refreshItems];
+  if (rowsToWrite.length) {
+    upsertRows_("items", rowsToWrite, "item_id");
   }
 
   upsertRows_(
@@ -312,7 +330,7 @@ function collectAndStoreNews_(searchTerms, year, trigger) {
         finished_at: new Date().toISOString(),
         trigger,
         query_count: searchTerms.length,
-        item_count: newItems.length,
+        item_count: rowsToWrite.length,
         status: "ready",
         notes: `${trigger} 후보 수집`
       }
@@ -320,7 +338,45 @@ function collectAndStoreNews_(searchTerms, year, trigger) {
     "run_id"
   );
 
-  return { newsItems, newItems };
+  return { newsItems, newItems, refreshItems };
+}
+
+function shouldRefreshAutoItem_(row) {
+  const basis = String(row.ai_basis || "");
+  const quality = String(row.quality || "");
+  const status = String(row.review_status || "");
+  return !quality || !status || basis.indexOf("Google News RSS 후보") !== -1 || basis.indexOf("AI 자동판정") !== -1;
+}
+
+function getItemDedupeKey_(row) {
+  const url = normalizeArticleUrl_(row && (row.canonical_url || row.url));
+  if (url) return `url:${url}`;
+
+  const source = normalizeKey_(row && (row.source_name || row.source));
+  const title = normalizeKey_(row && row.title);
+  if (!source || !title) return "";
+  return `title:${source}:${title}`;
+}
+
+function normalizeArticleUrl_(url) {
+  const value = String(url || "").replace(/&amp;/g, "&").trim();
+  if (!value) return "";
+  const parts = value.split("?");
+  const base = parts[0].replace(/\/$/, "");
+  if (parts.length === 1) return base;
+
+  const keptParams = parts
+    .slice(1)
+    .join("?")
+    .split("&")
+    .filter((param) => {
+      const key = param.split("=")[0].toLowerCase();
+      return key &&
+        key.indexOf("utm_") !== 0 &&
+        ["fbclid", "gclid", "cmpt_cd", "outurl", "input", "pt", "sc"].indexOf(key) === -1;
+    });
+
+  return keptParams.length ? `${base}?${keptParams.join("&")}` : base;
 }
 
 function readPlanText_(sourceUrl, rawText, file) {
@@ -520,15 +576,18 @@ function normalizeKeywordType_(type, keyword) {
 }
 
 function normalizeKeywordRows_(rows) {
-  return rows.filter((row) => row && row.keyword).map((row) =>
-    Object.assign({}, row, {
-      type: normalizeKeywordType_(row.type, row.keyword)
-    })
-  );
+  return rows
+    .filter((row) => row && row.keyword)
+    .map((row) =>
+      Object.assign({}, row, {
+        type: normalizeKeywordType_(row.type, row.keyword)
+      })
+    )
+    .filter((row) => row.type === "조직명" || isKeywordCandidate_(row.keyword));
 }
 
 function normalizeItemRows_(rows) {
-  return rows.filter((row) => !isHardcodedManualItem_(row));
+  return rows.filter((row) => !isHardcodedManualItem_(row) && isMediaItem_(row) && !isExcludedNews_(row));
 }
 
 function isHardcodedManualItem_(row) {
@@ -536,6 +595,11 @@ function isHardcodedManualItem_(row) {
   if (id.indexOf("sheet-") === 0) return true;
   const text = [row && row.ai_basis, row && row.snippet, row && row.matched_keyword].join(" ");
   return /수기\s*(시트|목록)/.test(text);
+}
+
+function isMediaItem_(row) {
+  const sourceType = String((row && row.source_type) || "media");
+  return sourceType === "media";
 }
 
 function uniquePrograms_(programs) {
@@ -746,61 +810,320 @@ function collectNewsCandidates_(terms, startDate, perKeywordLimit, totalLimit, p
 
   terms.forEach((term) => {
     if (results.length >= totalLimit) return;
-    const query = `"${term}" after:${startDate}`;
-    const url = `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=ko&gl=KR&ceid=KR:ko`;
-    let xml = "";
-
-    try {
-      const response = UrlFetchApp.fetch(url, {
-        muteHttpExceptions: true,
-        headers: { "User-Agent": "Mozilla/5.0 news-dashboard" }
-      });
-      if (response.getResponseCode() !== 200) return;
-      xml = response.getContentText();
-    } catch (error) {
-      return;
-    }
-
-    const items = parseGoogleNewsItems_(xml);
     let addedForTerm = 0;
-    items.forEach((item) => {
+
+    buildNewsQueries_(term, startDate).forEach((queryInfo) => {
       if (addedForTerm >= perKeywordLimit || results.length >= totalLimit) return;
-      if (isExcludedNews_(item)) return;
-      if (!matchesSearchTerm_(item, term)) return;
+      const url = `https://news.google.com/rss/search?q=${encodeURIComponent(queryInfo.query)}&hl=ko&gl=KR&ceid=KR:ko`;
+      let xml = "";
 
-      const id = `news-${hashString_([item.source, item.title, item.published_at, item.url].join("|"))}`;
-      if (seen[id]) return;
-      seen[id] = true;
-      addedForTerm += 1;
-      const programMatch = matchProgram_(item, term, programRows);
-      const quality = inferArticleQuality_(item);
+      try {
+        const response = UrlFetchApp.fetch(url, {
+          muteHttpExceptions: true,
+          headers: { "User-Agent": "Mozilla/5.0 news-dashboard" }
+        });
+        if (response.getResponseCode() !== 200) return;
+        xml = response.getContentText();
+      } catch (error) {
+        return;
+      }
 
-      results.push({
-        item_id: id,
-        title: item.title,
-        url: item.url,
-        canonical_url: item.url,
-        source_name: item.source || "Google News",
-        source_type: "media",
-        published_at: item.published_at,
-        discovered_at: new Date().toISOString(),
-        matched_keyword: term,
-        snippet: item.description,
-        ai_summary: "",
-        ai_basis: `Google News RSS 후보: ${term}`,
-        review_status: "needs-review",
-        include_in_press_count: false,
-        representative: false,
-        program_id: programMatch.program_id,
-        program_name: programMatch.name,
-        program_category: programMatch.category,
-        quality: quality.quality,
-        quality_basis: quality.basis
+      parseGoogleNewsItems_(xml).forEach((item) => {
+        if (addedForTerm >= perKeywordLimit || results.length >= totalLimit) return;
+        if (isExcludedNews_(item)) return;
+        if (!matchesSearchTerm_(item, term)) return;
+
+        const relevance = inferArticleRelevance_(item, term, programRows);
+        if (relevance.score < 50) return;
+
+        const id = `news-${hashString_([item.source, item.title, item.published_at, item.url].join("|"))}`;
+        if (seen[id]) return;
+        seen[id] = true;
+        addedForTerm += 1;
+        const programMatch = matchProgram_(item, term, programRows);
+        const quality = inferArticleQuality_(item);
+
+        results.push({
+          item_id: id,
+          title: item.title,
+          url: item.url,
+          canonical_url: item.url,
+          source_name: item.source || "Google News",
+          source_type: "media",
+          published_at: item.published_at,
+          discovered_at: new Date().toISOString(),
+          matched_keyword: term,
+          snippet: item.description,
+          ai_summary: "",
+          ai_basis: `${relevance.basis} / 수집 경로: ${queryInfo.label}`,
+          review_status: relevance.status,
+          include_in_press_count: relevance.status === "related",
+          representative: false,
+          program_id: programMatch.program_id,
+          program_name: programMatch.name,
+          program_category: programMatch.category,
+          quality: quality.quality,
+          quality_basis: quality.basis
+        });
       });
     });
+
+    if (addedForTerm < perKeywordLimit && results.length < totalLimit) {
+      fetchNaverNewsItems_(term, startDate).forEach((item) => {
+        if (addedForTerm >= perKeywordLimit || results.length >= totalLimit) return;
+        if (isExcludedNews_(item)) return;
+        if (!matchesSearchTerm_(item, term)) return;
+
+        const relevance = inferArticleRelevance_(item, term, programRows);
+        if (relevance.score < 50) return;
+
+        const id = `news-${hashString_([item.source, item.title, item.published_at, item.url].join("|"))}`;
+        if (seen[id]) return;
+        seen[id] = true;
+        addedForTerm += 1;
+        const programMatch = matchProgram_(item, term, programRows);
+        const quality = inferArticleQuality_(item);
+
+        results.push({
+          item_id: id,
+          title: item.title,
+          url: item.url,
+          canonical_url: item.url,
+          source_name: item.source || sourceNameFromUrl_(item.url),
+          source_type: "media",
+          published_at: item.published_at,
+          discovered_at: new Date().toISOString(),
+          matched_keyword: term,
+          snippet: item.description,
+          ai_summary: "",
+          ai_basis: `${relevance.basis} / 수집 경로: 네이버뉴스 직접 검색`,
+          review_status: relevance.status,
+          include_in_press_count: relevance.status === "related",
+          representative: false,
+          program_id: programMatch.program_id,
+          program_name: programMatch.name,
+          program_category: programMatch.category,
+          quality: quality.quality,
+          quality_basis: quality.basis
+        });
+      });
+    }
   });
 
   return results;
+}
+
+function buildNewsQueries_(term, startDate) {
+  const queries = [];
+  const quoted = `"${term}"`;
+  queries.push({ query: `${quoted} after:${startDate}`, label: "Google News" });
+  queries.push({ query: `${quoted} site:n.news.naver.com after:${startDate}`, label: "네이버뉴스" });
+  queries.push({ query: `${quoted} site:v.daum.net after:${startDate}`, label: "다음뉴스" });
+
+  if (!isOrganizationKeyword_(term)) {
+    queries.push({ query: `"서울환경연합" ${quoted} after:${startDate}`, label: "조직명+검색어" });
+    queries.push({ query: `"서울환경운동연합" ${quoted} after:${startDate}`, label: "조직명+검색어" });
+    queries.push({ query: `"서울환경연합" ${quoted} site:n.news.naver.com after:${startDate}`, label: "네이버뉴스 조직명+검색어" });
+    queries.push({ query: `"서울환경연합" ${quoted} site:v.daum.net after:${startDate}`, label: "다음뉴스 조직명+검색어" });
+  }
+
+  return queries;
+}
+
+function fetchNaverNewsItems_(term, startDate) {
+  const dateStart = String(startDate || "2026-01-01");
+  const ds = dateStart.replace(/-/g, ".");
+  const compactStart = dateStart.replace(/-/g, "");
+  const endDate = Utilities.formatDate(new Date(), "Asia/Seoul", "yyyy-MM-dd");
+  const de = endDate.replace(/-/g, ".");
+  const compactEnd = endDate.replace(/-/g, "");
+  const starts = [1, 11];
+  const queries = isOrganizationKeyword_(term)
+    ? [term]
+    : [`서울환경연합 ${term}`, `서울환경운동연합 ${term}`, term];
+  const items = [];
+  const seen = {};
+
+  queries.forEach((query) => {
+    starts.forEach((start) => {
+      const url = [
+        "https://search.naver.com/search.naver?where=news",
+        `query=${encodeURIComponent(query)}`,
+        "sm=tab_opt",
+        "sort=1",
+        "pd=3",
+        `ds=${encodeURIComponent(ds)}`,
+        `de=${encodeURIComponent(de)}`,
+        `nso=${encodeURIComponent(`so:dd,p:from${compactStart}to${compactEnd},a:all`)}`,
+        `start=${start}`
+      ].join("&");
+
+      try {
+        const response = UrlFetchApp.fetch(url, {
+          muteHttpExceptions: true,
+          headers: { "User-Agent": "Mozilla/5.0 news-dashboard" }
+        });
+        if (response.getResponseCode() !== 200) return;
+        parseNaverNewsItems_(response.getContentText()).forEach((item) => {
+          const key = normalizeKey_([item.source, item.title, item.url].join("|"));
+          if (!key || seen[key]) return;
+          seen[key] = true;
+          items.push(item);
+        });
+      } catch (error) {
+        return;
+      }
+    });
+  });
+
+  return items;
+}
+
+function parseNaverNewsItems_(html) {
+  const parts = String(html || "").split('"templateId":"newsItem"');
+  const items = [];
+
+  parts.forEach((part) => {
+    const start = part.lastIndexOf('{"props":');
+    if (start === -1) return;
+    const section = part.slice(start);
+    const titleMatches = [];
+    const titlePattern = /"title":"((?:\\.|[^"\\])+)"\s*,\s*"titleHref":"(https?:\/\/[^"\\]+)"/g;
+    let titleMatch = titlePattern.exec(section);
+    while (titleMatch) {
+      if (titleMatch[2].indexOf("media.naver.com/press") === -1) {
+        titleMatches.push(titleMatch);
+      }
+      titleMatch = titlePattern.exec(section);
+    }
+    const article = titleMatches.length ? titleMatches[titleMatches.length - 1] : null;
+    if (!article) return;
+
+    const url = decodeNaverUrl_(article[2]);
+    if (!isLikelyArticleUrl_(url)) return;
+
+    const contentMatch = section.match(/"content":"((?:\\.|[^"\\])*)"\s*,\s*"contentHref":"(https?:\/\/[^"\\]+)"/);
+    const sourceMatch = section.match(/"sourceProfile":\{[\s\S]*?"title":"((?:\\.|[^"\\])+)".*?"titleHref":"https:\/\/media\.naver\.com\/press\/[^"]+"/);
+    const dateMatch = section.match(/"text":"([0-9]{4}\.[0-9]{1,2}\.[0-9]{1,2}\.|[0-9]+[분시간일]\s*전|[0-9]{1,2}\.[0-9]{1,2}\.)"/);
+    const title = stripTags_(decodeNaverJsonText_(article[1]));
+    const description = contentMatch ? stripTags_(decodeNaverJsonText_(contentMatch[1])) : "";
+    const source = sourceMatch ? stripTags_(decodeNaverJsonText_(sourceMatch[1])) : sourceNameFromUrl_(url);
+
+    if (!title || !url) return;
+    items.push({
+      title,
+      url,
+      source,
+      published_at: formatNaverDate_(dateMatch ? dateMatch[1] : ""),
+      description
+    });
+  });
+
+  return items;
+}
+
+function decodeNaverJsonText_(value) {
+  const text = String(value || "");
+  try {
+    return JSON.parse(`"${text.replace(/"/g, '\\"')}"`);
+  } catch (error) {
+    return text
+      .replace(/\\u003c/g, "<")
+      .replace(/\\u003e/g, ">")
+      .replace(/\\\//g, "/")
+      .replace(/\\n/g, " ");
+  }
+}
+
+function decodeNaverUrl_(value) {
+  return decodeNaverJsonText_(value).replace(/&amp;/g, "&").trim();
+}
+
+function isLikelyArticleUrl_(url) {
+  const value = String(url || "");
+  return /^https?:\/\//i.test(value) &&
+    value.indexOf("search.naver.com") === -1 &&
+    value.indexOf("keep.naver.com") === -1 &&
+    value.indexOf("media.naver.com/press") === -1;
+}
+
+function sourceNameFromUrl_(url) {
+  const match = String(url || "").match(/^https?:\/\/(?:www\.)?([^\/?#]+)/i);
+  return match ? match[1] : "언론사";
+}
+
+function formatNaverDate_(value) {
+  const text = String(value || "").trim();
+  const full = text.match(/([0-9]{4})\.([0-9]{1,2})\.([0-9]{1,2})\./);
+  if (full) return `${full[1]}-${full[2].padStart(2, "0")}-${full[3].padStart(2, "0")}`;
+
+  const today = new Date();
+  const dayRelative = text.match(/([0-9]+)일\s*전/);
+  if (dayRelative) {
+    today.setDate(today.getDate() - Number(dayRelative[1]));
+    return Utilities.formatDate(today, "Asia/Seoul", "yyyy-MM-dd");
+  }
+  if (/[분시간]\s*전/.test(text)) {
+    return Utilities.formatDate(today, "Asia/Seoul", "yyyy-MM-dd");
+  }
+
+  const short = text.match(/([0-9]{1,2})\.([0-9]{1,2})\./);
+  if (short) {
+    const year = Utilities.formatDate(today, "Asia/Seoul", "yyyy");
+    return `${year}-${short[1].padStart(2, "0")}-${short[2].padStart(2, "0")}`;
+  }
+
+  return "";
+}
+
+function inferArticleRelevance_(item, term, programs) {
+  const text = [item.title, item.description].join(" ");
+  const haystack = normalizeKey_(text);
+  const termKey = normalizeKey_(term);
+  const hasSeoulOrg = haystack.indexOf(normalizeKey_("서울환경연합")) !== -1 ||
+    haystack.indexOf(normalizeKey_("서울환경운동연합")) !== -1;
+  let score = 0;
+  const reasons = [];
+
+  if (hasSeoulOrg) {
+    score += 55;
+    reasons.push("서울환경연합 조직명 직접 언급");
+  }
+
+  const hasCampaignTerm = !isOrganizationKeyword_(term) && haystack.indexOf(termKey) !== -1;
+  if (hasCampaignTerm) {
+    score += hasSeoulOrg ? 45 : isAmbiguousCampaignKeyword_(term) ? 60 : 80;
+    reasons.push(hasSeoulOrg ? "조직명+캠페인명 직접 언급" : "캠페인명 직접 언급");
+  }
+
+  if (isOrganizationKeyword_(term) && hasSeoulOrg) {
+    score += 25;
+    reasons.push("조직명 검색 결과");
+  }
+
+  const programHit = programs.some((program) => {
+    const name = normalizeKey_(program.name);
+    return name && haystack.indexOf(name) !== -1;
+  });
+  if (programHit) {
+    score += 20;
+    reasons.push("사업명 직접 언급");
+  }
+
+  if (isOtherChapterNews_(text)) {
+    score -= 70;
+    reasons.push("다른 지역 환경연합 기사 가능성");
+  }
+
+  if (hasCampaignTerm && !hasSeoulOrg && isAmbiguousCampaignKeyword_(term) && score >= 80) {
+    score = 75;
+    reasons.push("조직명 미확인");
+  }
+
+  score = Math.max(0, Math.min(100, score));
+  const status = score >= 80 ? "related" : "needs-review";
+  const basis = `AI 자동판정 ${score}점: ${reasons.join(", ") || "검색어 기반 후보"}`;
+  return { score, status, basis };
 }
 
 function matchProgram_(item, term, programs) {
@@ -817,19 +1140,30 @@ function matchProgram_(item, term, programs) {
 }
 
 function inferArticleQuality_(item) {
-  const text = normalizeKey_([item.title, item.description].join(" "));
-  if (/(포토|사진|화보|캡션|tf사진관|현장사진)/i.test([item.title, item.description].join(" "))) {
+  const rawText = [item.title, item.description].join(" ");
+  const text = normalizeKey_(rawText);
+  const hasOrganizationOrCampaign = text.indexOf(normalizeKey_("서울환경연합")) !== -1 ||
+    text.indexOf(normalizeKey_("서울환경운동연합")) !== -1 ||
+    ["시티트리클럽", "플라스틱방앗간", "씨앗의숲", "지구를 구하장", "라이드어스"].some(
+      (name) => text.indexOf(normalizeKey_(name)) !== -1
+    );
+
+  if (/(포토|사진|화보|캡션|tf사진관|현장사진)/i.test(rawText)) {
     return { quality: "하", basis: "사진·캡션 중심 기사로 추정" };
   }
-  if (text.indexOf(normalizeKey_("서울환경연합")) !== -1 && /(발행|성명|논평|기자회견|촉구|주장|밝혔다|제안)/.test(item.title)) {
-    return { quality: "하", basis: "보도자료 단순 전재 가능성이 높음" };
-  }
-  if (/(인터뷰|말했다|설명했다|덧붙였다|관계자는|활동가)/.test([item.title, item.description].join(" "))) {
-    return { quality: "중", basis: "보도자료 외 인터뷰나 추가 설명 가능성" };
-  }
-  if (/(단독|취재|현장|논란|추적|분석|왜|어떻게|확인)/.test([item.title, item.description].join(" "))) {
+
+  if (/(단독|르포|취재|현장|논란|추적|분석|톺아보기|왜|어떻게|확인)/.test(rawText)) {
     return { quality: "상", basis: "별도 취재 또는 분석 기사 가능성" };
   }
+
+  if (/(인터뷰|말했다|설명했다|덧붙였다|관계자는|활동가|전했다|답했다)/.test(rawText)) {
+    return { quality: "중", basis: "보도자료 외 인터뷰나 추가 설명 가능성" };
+  }
+
+  if (hasOrganizationOrCampaign && /(발행|성명|논평|기자회견|촉구|주장|밝혔다|제안|모집|개최|성료|론칭|공개|캠페인|협약|요구|기자회견문)/.test(rawText)) {
+    return { quality: "하", basis: "보도자료·행사 안내성 기사 가능성이 높음" };
+  }
+
   return { quality: "미분류", basis: "관리자 확인 필요" };
 }
 
@@ -854,10 +1188,38 @@ function parseGoogleNewsItems_(xml) {
 }
 
 function isExcludedNews_(item) {
-  const haystack = normalizeKey_([item.source, item.url].join(" "));
-  return ["seoulkfem", "kfem.or.kr", "snpo", "서울환경연합", "환경운동연합", "서울시공익활동지원센터"].some(
+  const source = (item && (item.source || item.source_name)) || "";
+  const description = (item && (item.description || item.snippet)) || "";
+  const haystack = normalizeKey_([source, item && item.url].join(" "));
+  if (isOtherChapterNews_([item && item.title, description].join(" "))) return true;
+  return [
+    "seoulkfem",
+    "kfem.or.kr",
+    "snpo",
+    "korea.kr",
+    "go.kr",
+    "gov.kr",
+    "seoul.go.kr",
+    "blog.naver.com",
+    "post.naver.com",
+    "tistory.com",
+    "brunch.co.kr",
+    "facebook.com",
+    "instagram.com",
+    "youtube.com",
+    "youtu.be",
+    "x.com",
+    "twitter.com",
+    "threads.net",
+    "서울환경연합",
+    "환경운동연합",
+    "서울시공익활동지원센터",
+    "공익활동지원센터",
+    "네이버블로그",
+    "블로그"
+  ].some(
     (keyword) => haystack.indexOf(normalizeKey_(keyword)) !== -1
-  );
+  ) || ["홈페이지", "기관", "sns", "블로그"].some((keyword) => haystack.indexOf(normalizeKey_(keyword)) !== -1);
 }
 
 function matchesSearchTerm_(item, term) {
@@ -866,6 +1228,55 @@ function matchesSearchTerm_(item, term) {
     return haystack.indexOf(normalizeKey_("서울환경연합")) !== -1 || haystack.indexOf(normalizeKey_("서울환경운동연합")) !== -1;
   }
   return haystack.indexOf(normalizeKey_(term)) !== -1;
+}
+
+function isAmbiguousCampaignKeyword_(term) {
+  return ["플라스틱방앗간"].indexOf(String(term || "").trim()) !== -1;
+}
+
+function isOtherChapterNews_(text) {
+  const value = normalizeKey_(text);
+  if (value.indexOf(normalizeKey_("서울환경연합")) !== -1 || value.indexOf(normalizeKey_("서울환경운동연합")) !== -1) {
+    return false;
+  }
+  return [
+    "부산",
+    "대구",
+    "광주",
+    "대전",
+    "울산",
+    "인천",
+    "경기",
+    "수원",
+    "안산",
+    "파주",
+    "고양",
+    "강원",
+    "충북",
+    "충남",
+    "전북",
+    "전남",
+    "경북",
+    "경남",
+    "제주",
+    "순천",
+    "여수",
+    "마산",
+    "창원",
+    "진주",
+    "청주",
+    "천안",
+    "아산",
+    "군산",
+    "익산",
+    "포항",
+    "경주",
+    "목포"
+  ].some((region) => {
+    const prefix = normalizeKey_(region);
+    return value.indexOf(`${prefix}${normalizeKey_("환경연합")}`) !== -1 ||
+      value.indexOf(`${prefix}${normalizeKey_("환경운동연합")}`) !== -1;
+  });
 }
 
 function stripTags_(value) {

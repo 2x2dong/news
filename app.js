@@ -20,12 +20,7 @@ const APP_CONFIG = {
 const VIEWER_URL = `${window.location.origin}${window.location.pathname}?view=viewer`;
 
 const SOURCE_TYPE_LABELS = {
-  media: "언론사 기사",
-  blog: "블로그",
-  social: "SNS",
-  institution: "기관 게시물",
-  own: "단체 자체 게시물",
-  other: "기타"
+  media: "언론사 기사"
 };
 
 const DEFAULT_KEYWORDS = [
@@ -64,10 +59,12 @@ const seedArticles = [];
 
 let state = {
   articles: loadArticles(),
-  keywords: loadCollection(KEYWORD_STORAGE_KEY, cloneDefaultKeywords).map((keyword) => ({
-    ...keyword,
-    type: normalizeKeywordType(keyword.type, keyword.keyword)
-  })),
+  keywords: loadCollection(KEYWORD_STORAGE_KEY, cloneDefaultKeywords)
+    .map((keyword) => ({
+      ...keyword,
+      type: normalizeKeywordType(keyword.type, keyword.keyword)
+    }))
+    .filter(isAllowedKeyword),
   plans: loadCollection(PLAN_STORAGE_KEY, () => []),
   programs: loadCollection(PROGRAM_STORAGE_KEY, cloneDefaultPrograms).filter((program) => !isExcludedProgram(program)),
   role: loadRole(),
@@ -120,7 +117,6 @@ function bindElements() {
     "articleForm",
     "newTitle",
     "newSource",
-    "newSourceType",
     "newDate",
     "newUrl",
     "newSummary",
@@ -183,7 +179,6 @@ function bindEvents() {
   els.adminLoginForm.addEventListener("submit", adminLogin);
   els.adminLogoutButton.addEventListener("click", adminLogout);
   els.copyViewerLinkButton.addEventListener("click", copyViewerLink);
-  els.exportSheetsButton.addEventListener("click", exportSheetsJson);
   els.loadSheetsButton.addEventListener("click", loadSheetsSnapshot);
   els.fetchNewsButton.addEventListener("click", fetchNews);
   els.syncSheetsButton.addEventListener("click", syncSheets);
@@ -393,12 +388,6 @@ function renderArticles() {
     });
   });
 
-  els.articleTable.querySelectorAll("[data-count]").forEach((button) => {
-    button.addEventListener("click", () => {
-      toggleArticleCount(button.dataset.count);
-    });
-  });
-
   renderDetail();
 }
 
@@ -437,11 +426,6 @@ function renderArticleRow(article) {
           <span class="chip neutral">${escapeHtml(article.quality || "미분류")}</span>
         </div>
       `;
-  const countLabel = isCountedArticle(article) ? "집계 포함" : "집계 제외";
-  const countCell =
-    state.role === "admin"
-      ? `<button class="count-toggle" type="button" data-count="${escapeAttr(article.id)}">${countLabel}</button>`
-      : `<span class="chip neutral">${countLabel}</span>`;
   const reviewCell =
     state.role === "admin"
       ? `
@@ -484,7 +468,6 @@ function renderArticleRow(article) {
           <p class="basis-note">${escapeHtml(article.qualityBasis || "품질 확인 필요")}</p>
         </div>
       </td>
-      <td>${countCell}</td>
       <td>${reviewCell}</td>
     </tr>
   `;
@@ -495,7 +478,7 @@ function renderDetail() {
   if (!article) {
     els.detailTitle.textContent = "기사를 선택하세요";
     els.detailMeta.textContent = "목록에서 행을 누르면 검토 메모가 열립니다.";
-    els.detailSummary.textContent = "관련 여부, 같은 언론사 안의 중복 가능성, 대표 기사 여부를 확인해 평가 근거를 다듬을 수 있습니다.";
+    els.detailSummary.textContent = "자동판정이 어색한 기사만 관련 여부, 품질, 대표 기사 여부를 고칠 수 있습니다.";
     els.detailActions.innerHTML = "";
     return;
   }
@@ -515,9 +498,6 @@ function renderDetail() {
     <button class="button ghost" type="button" data-detail-action="representative">
       ${article.representative ? "대표 해제" : "대표 기사"}
     </button>
-    <button class="button ghost" type="button" data-detail-action="count">
-      ${isCountedArticle(article) ? "집계 제외" : "집계 포함"}
-    </button>
     <button class="button ghost" type="button" data-detail-action="related">관련으로 표시</button>
     <button class="button ghost" type="button" data-detail-action="review">검토 필요</button>
     <a class="button secondary" href="${escapeAttr(article.url)}" target="_blank" rel="noreferrer">원문 열기</a>
@@ -527,9 +507,6 @@ function renderDetail() {
     button.addEventListener("click", () => {
       if (button.dataset.detailAction === "representative") {
         updateArticle(article.id, { representative: !article.representative });
-      }
-      if (button.dataset.detailAction === "count") {
-        toggleArticleCount(article.id);
       }
       if (button.dataset.detailAction === "related") {
         updateArticle(article.id, { reviewStatus: "related" });
@@ -583,21 +560,10 @@ function updateArticle(id, changes) {
   showToast("검토 상태를 반영했습니다.");
 }
 
-function toggleArticleCount(id) {
-  const article = findArticle(id);
-  if (!article) return;
-  if (article.sourceType !== "media") {
-    showToast("보도 횟수는 언론사 기사만 포함합니다.");
-    return;
-  }
-  updateArticle(article.id, { includeInCount: !article.includeInCount });
-}
-
 function addArticle(event) {
   event.preventDefault();
   if (state.role !== "admin") return;
 
-  const sourceType = els.newSourceType.value;
   const text = `${els.newTitle.value} ${els.newSummary.value}`;
   const program = inferProgramForText(text);
   const quality = inferArticleQuality(text);
@@ -605,7 +571,7 @@ function addArticle(event) {
     id: `manual-${Date.now()}`,
     title: els.newTitle.value.trim(),
     source: els.newSource.value.trim(),
-    sourceType,
+    sourceType: "media",
     publishedAt: els.newDate.value,
     url: els.newUrl.value.trim(),
     summary: els.newSummary.value.trim() || "사용자가 추가한 공개 항목입니다.",
@@ -620,7 +586,7 @@ function addArticle(event) {
     programCategory: program.category,
     quality: quality.quality,
     qualityBasis: quality.basis,
-    note: "새로 추가된 항목이라 사람이 관련성 및 집계 포함 여부를 확인해야 합니다."
+    note: "새로 추가된 항목이라 사람이 관련성을 확인해야 합니다."
   };
   state.articles = [article, ...state.articles];
   state.selectedId = article.id;
@@ -670,7 +636,9 @@ async function importPlan(event) {
           result.keywordsExtracted
         )}개 · 발췌 사업 ${escapeHtml(result.programsExtracted || 0)}개 · 새 검색어 ${escapeHtml(
           result.keywordsAdded
-        )}개 · 기사 후보 ${escapeHtml(result.itemsFound)}건 확인 / ${escapeHtml(result.itemsAdded)}건 추가
+        )}개 · 기사 후보 ${escapeHtml(result.itemsFound)}건 확인 / ${escapeHtml(result.itemsAdded)}건 추가 / ${escapeHtml(
+          result.itemsUpdated || 0
+        )}건 갱신
       `;
       showToast("사업계획서와 기사 후보를 저장했습니다.");
       return;
@@ -821,20 +789,10 @@ async function fetchNews() {
     const result = await response.json();
     if (!response.ok || !result.ok) throw new Error(result.error || "fetch failed");
     applySheetsSnapshot(result.sheets || {});
-    showToast(`기사 후보 ${result.itemsFound}건 확인, ${result.itemsAdded}건 추가했습니다.`);
+    showToast(`기사 후보 ${result.itemsFound}건 확인, ${result.itemsAdded}건 추가, ${result.itemsUpdated || 0}건 갱신했습니다.`);
   } catch (error) {
     showToast("기사 수동 수집에 실패했습니다.");
   }
-}
-
-function exportJson() {
-  downloadJson(buildDashboardPayload(), "news-dashboard-export.json");
-  showToast("JSON 파일을 만들었습니다.");
-}
-
-function exportSheetsJson() {
-  downloadJson(buildSheetsPayload(), "google-sheets-payload.json");
-  showToast("시트용 JSON 파일을 만들었습니다.");
 }
 
 async function syncSheets() {
@@ -920,7 +878,7 @@ function buildSheetsPayload() {
       partners: program.partners || "",
       active: program.active
     })),
-    keywords: state.keywords.map((keyword) => ({
+    keywords: state.keywords.filter(isAllowedKeyword).map((keyword) => ({
       keyword_id: keyword.id,
       keyword: keyword.keyword,
       type: keyword.type,
@@ -928,13 +886,13 @@ function buildSheetsPayload() {
       active: keyword.active,
       notes: keyword.notes || ""
     })),
-    items: state.articles.map((article) => ({
+    items: state.articles.filter((article) => article.sourceType === "media").map((article) => ({
       item_id: article.id,
       title: article.title,
       url: article.url,
       canonical_url: canonicalize(article.url),
       source_name: article.source,
-      source_type: article.sourceType || "media",
+      source_type: "media",
       published_at: article.publishedAt,
       discovered_at: exportedAt,
       matched_keyword: article.matchedKeywords.join(", "),
@@ -976,7 +934,9 @@ function buildSheetsPayload() {
 }
 
 function applySheetsSnapshot(sheets) {
-  const items = Array.isArray(sheets.items) ? sheets.items.filter((item) => !isHardcodedManualArticle(item)) : [];
+  const items = Array.isArray(sheets.items)
+    ? sheets.items.filter((item) => !isHardcodedManualArticle(item) && isMediaItem(item))
+    : [];
   const keywords = Array.isArray(sheets.keywords) ? sheets.keywords : [];
   const plans = Array.isArray(sheets.plans) ? sheets.plans : [];
   const programs = Array.isArray(sheets.programs) ? sheets.programs : [];
@@ -1015,7 +975,8 @@ function applySheetsSnapshot(sheets) {
         source: keyword.source || "Google Sheets",
         active: parseBoolean(keyword.active),
         notes: keyword.notes || ""
-      }));
+      }))
+      .filter(isAllowedKeyword);
   }
 
   if (plans.length) {
@@ -1101,7 +1062,6 @@ function inferBasis(text) {
     return "직접 보도 후보";
   }
   if (normalized.includes("서울환경연합") || normalized.includes("서울환경운동연합")) return "조직 언급";
-  if (normalized.includes("가로수") || normalized.includes("나무의 권리")) return "키워드 관련";
   return "검토 필요";
 }
 
@@ -1144,18 +1104,18 @@ function getDuplicateKey(article) {
 }
 
 function isCountedArticle(article) {
-  return article.sourceType === "media" && article.reviewStatus === "related" && Boolean(article.includeInCount);
+  return article.sourceType === "media" && article.reviewStatus === "related";
 }
 
 function getSourceTypeLabel(type) {
-  return SOURCE_TYPE_LABELS[type] || SOURCE_TYPE_LABELS.other;
+  return SOURCE_TYPE_LABELS[type] || "제외 대상";
 }
 
 function getActiveKeywords() {
   return state.keywords.filter((keyword) => keyword.active).map((keyword) => ({
     ...keyword,
     type: normalizeKeywordType(keyword.type, keyword.keyword)
-  }));
+  })).filter(isAllowedKeyword);
 }
 
 function extractKeywordCandidates(text) {
@@ -1352,6 +1312,12 @@ function normalizeKeywordType(type, keyword = "") {
   return "캠페인명";
 }
 
+function isAllowedKeyword(keyword) {
+  const type = normalizeKeywordType(keyword && keyword.type, keyword && keyword.keyword);
+  if (type === "조직명") return true;
+  return isCampaignCandidate(keyword && keyword.keyword);
+}
+
 function isHardcodedManualArticle(article) {
   const id = String(article && (article.id || article.item_id) || "");
   if (id.startsWith("sheet-")) return true;
@@ -1362,6 +1328,11 @@ function isHardcodedManualArticle(article) {
     article && article.relevanceBasis
   ].join(" ");
   return /수기\s*(시트|목록)/.test(sourceText);
+}
+
+function isMediaItem(item) {
+  const sourceType = String((item && (item.source_type || item.sourceType)) || "media");
+  return sourceType === "media";
 }
 
 function isExcludedProgram(program) {
@@ -1401,18 +1372,29 @@ function inferCategory(text) {
 
 function inferArticleQuality(text) {
   const normalized = normalize(text);
+  const hasOrganizationOrCampaign =
+    normalized.includes("서울환경연합") ||
+    normalized.includes("서울환경운동연합") ||
+    ["시티트리클럽", "플라스틱방앗간", "씨앗의숲", "지구를구하장", "라이드어스"].some((name) =>
+      normalized.includes(normalize(name))
+    );
+
   if (/포토|사진|화보|캡션|tf사진관|현장사진/i.test(text)) {
     return { quality: "하", basis: "사진·캡션 중심 기사로 추정" };
   }
-  if (normalized.includes("서울환경연합") && /발행|성명|논평|기자회견|촉구|주장|밝혔다|제안/.test(text)) {
-    return { quality: "하", basis: "보도자료 단순 전재 가능성이 높음" };
-  }
-  if (/인터뷰|말했다|설명했다|덧붙였다|관계자는|활동가/.test(text)) {
-    return { quality: "중", basis: "보도자료 외 인터뷰나 추가 설명 가능성" };
-  }
-  if (/단독|취재|현장|논란|추적|분석|왜|어떻게|확인/.test(text)) {
+
+  if (/단독|르포|취재|현장|논란|추적|분석|톺아보기|왜|어떻게|확인/.test(text)) {
     return { quality: "상", basis: "별도 취재 또는 분석 기사 가능성" };
   }
+
+  if (/인터뷰|말했다|설명했다|덧붙였다|관계자는|활동가|전했다|답했다/.test(text)) {
+    return { quality: "중", basis: "보도자료 외 인터뷰나 추가 설명 가능성" };
+  }
+
+  if (hasOrganizationOrCampaign && /발행|성명|논평|기자회견|촉구|주장|밝혔다|제안|모집|개최|성료|론칭|공개|캠페인|협약|요구|기자회견문/.test(text)) {
+    return { quality: "하", basis: "보도자료·행사 안내성 기사 가능성이 높음" };
+  }
+
   return { quality: "미분류", basis: "관리자 확인 필요" };
 }
 
