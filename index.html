@@ -21,6 +21,7 @@
       <div class="topbar-actions" aria-label="대시보드 작업">
         <form class="login-form" id="adminLoginForm" data-viewer-hidden>
           <input type="text" name="username" value="admin" autocomplete="username" hidden />
+          <span class="login-status" id="adminLoginStatus" hidden>관리자 로그인 중</span>
           <label>
             <span>관리자 비밀번호</span>
             <input id="adminPasswordInput" type="password" autocomplete="current-password" placeholder="비밀번호" />
@@ -31,14 +32,6 @@
         <button class="button secondary" id="copyViewerLinkButton" type="button" data-admin-only>
           <span aria-hidden="true">⧉</span>
           보기 링크
-        </button>
-        <button class="button secondary" id="resetDataButton" type="button" data-admin-only>
-          <span aria-hidden="true">↺</span>
-          샘플 복원
-        </button>
-        <button class="button secondary" id="exportJsonButton" type="button">
-          <span aria-hidden="true">⇩</span>
-          JSON
         </button>
       </div>
     </header>
@@ -73,8 +66,8 @@
             <h2>분석 기준</h2>
             <dl class="definition-list">
               <div>
-                <dt>활동</dt>
-                <dd>나무의 권리 재인식 플랫폼: 시티트리클럽</dd>
+                <dt>범위</dt>
+                <dd>서울환경연합 전체 사업과 캠페인</dd>
               </div>
               <div>
                 <dt>저장소</dt>
@@ -86,7 +79,7 @@
               </div>
               <div>
                 <dt>검색 기간</dt>
-                <dd>2026년 1월 1일 이후 공개 언론사 기사. 현재 기본 데이터는 수기 시트로 검증한 7건</dd>
+                <dd>2026년 1월 1일 이후 공개 언론사 기사</dd>
               </div>
               <div>
                 <dt>검토 기준</dt>
@@ -295,10 +288,8 @@
               <label>
                 <span>유형</span>
                 <select id="newKeywordType">
-                  <option value="캠페인명">캠페인명</option>
                   <option value="조직명">조직명</option>
-                  <option value="사업명">사업명</option>
-                  <option value="협력기관명">협력기관명</option>
+                  <option value="캠페인명">캠페인명</option>
                 </select>
               </label>
               <label class="wide">

@@ -9,7 +9,6 @@ const COLLECTION_START = "2026-01-01";
 const DEFAULT_YEAR = "2026";
 
 const DEFAULT_CATEGORIES = ["생태도시", "기후행동", "자원순환", "시민참여", "모금", "기타"];
-
 const APP_CONFIG = {
   googleSheetUrl: "",
   appsScriptEndpoint: "",
@@ -45,207 +44,32 @@ const DEFAULT_KEYWORDS = [
     source: "기본",
     active: true,
     notes: "서울 조직명"
-  },
-  {
-    id: "kw-citytreeclub",
-    keyword: "시티트리클럽",
-    type: "캠페인명",
-    source: "2026 사업계획서",
-    active: true,
-    notes: "나무의 권리 재인식 플랫폼"
-  },
-  {
-    id: "kw-plastic-mill",
-    keyword: "플라스틱방앗간",
-    type: "캠페인명",
-    source: "2026 사업계획서",
-    active: true,
-    notes: "고유 캠페인명"
-  },
-  {
-    id: "kw-seed-forest",
-    keyword: "씨앗의숲",
-    type: "캠페인명",
-    source: "2026 사업계획서",
-    active: true,
-    notes: "고유 캠페인명"
-  },
-  {
-    id: "kw-street-tree",
-    keyword: "가로수",
-    type: "사업명",
-    source: "시티트리클럽 검증",
-    active: true,
-    notes: "일반어라 사람이 최종 확인"
-  },
-  {
-    id: "kw-tree-rights",
-    keyword: "나무의 권리",
-    type: "사업명",
-    source: "시티트리클럽 검증",
-    active: true,
-    notes: "사업 메시지"
   }
 ];
 
 const DEFAULT_PROGRAMS = [
   {
-    id: "program-citytreeclub-2026",
+    id: "program-2026-etc-response",
     year: "2026",
-    name: "나무의 권리 재인식 플랫폼: 시티트리클럽",
-    category: "생태도시",
-    goal: "도시 나무와 가로수의 권리를 시민이 기록하고 확산",
-    changeGoal: "언론 보도와 사회적 확산 근거 확보",
-    indicators: "언론보도 횟수, 대표 기사, 시민 참여와 외부 확산",
-    active: true
-  },
-  ...DEFAULT_CATEGORIES.map((category) => ({
-    id: `program-2026-category-${normalizeSeed(category)}`,
-    year: "2026",
-    name: `${category} 정책 대응`,
-    category,
+    name: "기타 정책 대응",
+    category: "기타",
     goal: "사업계획서에 없는 돌발 현장 대응 기사 분류",
     changeGoal: "",
     indicators: "",
     active: true
-  }))
-];
-
-const seedArticles = [
-  {
-    id: "sheet-31-khan-nate",
-    sheetRow: "31",
-    title: "나 몰래 베이고 뽑히는 우리 동네 가로수... 기록해서 지키는 '시티트리클럽'",
-    source: "경향신문",
-    sourceType: "media",
-    publishedAt: "2026-03-03",
-    url: "https://m.news.nate.com/view/20260303n37619",
-    summary:
-      "경향신문 기사의 네이트 모바일 게재 링크입니다. 같은 언론사의 직접 링크와 같은 보도로 보아 중복 의심으로 묶습니다.",
-    matchedKeywords: ["가로수", "시티트리클럽", "나무의 권리"],
-    reviewStatus: "related",
-    relevanceBasis: "대체 게재 링크",
-    representative: false,
-    includeInCount: false,
-    duplicateGroup: "khan-citytreeclub-20260303",
-    matchedProgram: "program-citytreeclub-2026",
-    note: "수기 시트 #31. 같은 경향신문 보도의 네이트 링크라 보도 횟수 집계에서는 제외했습니다."
-  },
-  {
-    id: "sheet-32-khan-direct",
-    sheetRow: "32",
-    title: "나 몰래 베이고 뽑히는 우리 동네 가로수... 기록해서 지키는 '시티트리클럽'",
-    source: "경향신문",
-    sourceType: "media",
-    publishedAt: "2026-03-03",
-    url: "https://www.khan.co.kr/article/202603031628011",
-    summary: "시티트리클럽 정식 오픈과 시민이 가로수를 기록해 지키는 활동을 다룬 경향신문 기사입니다.",
-    matchedKeywords: ["가로수", "시티트리클럽", "나무의 권리"],
-    reviewStatus: "related",
-    relevanceBasis: "직접 보도",
-    representative: true,
-    includeInCount: true,
-    duplicateGroup: "khan-citytreeclub-20260303",
-    matchedProgram: "program-citytreeclub-2026",
-    note: "수기 시트 #32. 경향신문 기준 대표 링크로 집계합니다."
-  },
-  {
-    id: "sheet-33-btv",
-    sheetRow: "33",
-    title: "가로수에 이름 붙여보세요... 시민이 기록하는 '시티트리클럽' 공개",
-    source: "Btv뉴스",
-    sourceType: "media",
-    publishedAt: "2026-03-03",
-    url: "https://news.skbroadband.com/news/articleView.html?idxno=219394",
-    summary: "시민이 가로수에 이름을 붙이고 기록하는 시티트리클럽 공개 소식을 다룬 방송사 지역 뉴스입니다.",
-    matchedKeywords: ["가로수", "시티트리클럽", "나무의 권리"],
-    reviewStatus: "related",
-    relevanceBasis: "직접 보도",
-    representative: true,
-    includeInCount: true,
-    duplicateGroup: "",
-    matchedProgram: "program-citytreeclub-2026",
-    note: "수기 시트 #33. 별도 언론사 보도이므로 집계 포함 후보입니다."
-  },
-  {
-    id: "sheet-34-lifein",
-    sheetRow: "34",
-    title: "가로수 기록 커뮤니티맵 '시티트리클럽' 정식 오픈",
-    source: "라이프인",
-    sourceType: "media",
-    publishedAt: "2026-03-03",
-    url: "https://www.lifein.news/news/articleView.html?idxno=20056",
-    summary: "시티트리클럽 정식 오픈을 다룬 라이프인 기사입니다. 다른 언론사 기사와 제목이 비슷해도 중복으로 보지 않습니다.",
-    matchedKeywords: ["가로수", "시티트리클럽", "나무의 권리"],
-    reviewStatus: "related",
-    relevanceBasis: "직접 보도",
-    representative: true,
-    includeInCount: true,
-    duplicateGroup: "",
-    matchedProgram: "program-citytreeclub-2026",
-    note: "수기 시트 #34. 별도 언론사 보도이므로 집계 포함 후보입니다."
-  },
-  {
-    id: "sheet-35-lak",
-    sheetRow: "35",
-    title: "가로수 기록 커뮤니티맵 '시티트리클럽' 정식 오픈",
-    source: "환경과조경",
-    sourceType: "media",
-    publishedAt: "2026-03-12",
-    url: "https://www.lak.co.kr/news/boardview.php?id=22661",
-    summary: "시티트리클럽 정식 오픈을 조경 분야 관점에서 다룬 기사입니다. 자동 요청은 차단될 수 있으나 수기 시트에 확인된 공개 링크입니다.",
-    matchedKeywords: ["가로수", "시티트리클럽", "나무의 권리"],
-    reviewStatus: "related",
-    relevanceBasis: "직접 보도",
-    representative: true,
-    includeInCount: true,
-    duplicateGroup: "",
-    matchedProgram: "program-citytreeclub-2026",
-    note: "수기 시트 #35. 다른 언론사 보도이므로 집계 포함 후보입니다."
-  },
-  {
-    id: "sheet-36-ekorea",
-    sheetRow: "36",
-    title: "가로수는 도심 녹지 생태계의 일원",
-    source: "이코리아",
-    sourceType: "media",
-    publishedAt: "2026-03-12",
-    url: "https://www.ekoreanews.co.kr/news/articleView.html?idxno=84982",
-    summary: "도심 가로수와 녹지 생태계 관점을 다룬 기사입니다. 시티트리클럽 직접 언급 여부와 평가 근거 사용 범위는 사람이 확인합니다.",
-    matchedKeywords: ["가로수", "나무의 권리"],
-    reviewStatus: "needs-review",
-    relevanceBasis: "키워드 관련",
-    representative: false,
-    includeInCount: false,
-    duplicateGroup: "",
-    matchedProgram: "program-citytreeclub-2026",
-    note: "수기 시트 #36. 키워드 관련성은 있으나 시티트리클럽 직접 보도인지 검토가 필요합니다."
-  },
-  {
-    id: "sheet-44-socialimpact",
-    sheetRow: "44",
-    title: "서울환경연합, 가로수 기록 커뮤니티맵 '시티트리클럽' 론칭",
-    source: "소셜임팩트뉴스",
-    sourceType: "media",
-    publishedAt: "2026-03-04",
-    url: "https://www.socialimpactnews.net/news/articleView.html?idxno=5740",
-    summary: "시티트리클럽 론칭과 시민 참여형 가로수 기록 흐름을 다룬 공개 기사입니다.",
-    matchedKeywords: ["서울환경연합", "가로수", "시티트리클럽", "나무의 권리"],
-    reviewStatus: "related",
-    relevanceBasis: "직접 보도",
-    representative: true,
-    includeInCount: true,
-    duplicateGroup: "",
-    matchedProgram: "program-citytreeclub-2026",
-    note: "수기 시트 #44. 언론 보도 횟수와 대표 기사 근거로 사용할 수 있습니다."
   }
 ];
 
+const seedArticles = [];
+
 let state = {
   articles: loadArticles(),
-  keywords: loadCollection(KEYWORD_STORAGE_KEY, cloneDefaultKeywords),
+  keywords: loadCollection(KEYWORD_STORAGE_KEY, cloneDefaultKeywords).map((keyword) => ({
+    ...keyword,
+    type: normalizeKeywordType(keyword.type, keyword.keyword)
+  })),
   plans: loadCollection(PLAN_STORAGE_KEY, () => []),
-  programs: loadCollection(PROGRAM_STORAGE_KEY, cloneDefaultPrograms),
+  programs: loadCollection(PROGRAM_STORAGE_KEY, cloneDefaultPrograms).filter((program) => !isExcludedProgram(program)),
   role: loadRole(),
   selectedId: null,
   filters: {
@@ -288,12 +112,11 @@ function bindElements() {
     "detailActions",
     "toast",
     "adminLoginForm",
+    "adminLoginStatus",
     "adminPasswordInput",
     "adminLoginButton",
     "adminLogoutButton",
     "copyViewerLinkButton",
-    "resetDataButton",
-    "exportJsonButton",
     "articleForm",
     "newTitle",
     "newSource",
@@ -357,24 +180,9 @@ function bindEvents() {
     });
   });
 
-  els.resetDataButton.addEventListener("click", () => {
-    state.articles = cloneSeedArticles();
-    state.keywords = cloneDefaultKeywords();
-    state.plans = [];
-    state.programs = cloneDefaultPrograms();
-    state.selectedId = null;
-    saveArticles();
-    saveKeywords();
-    savePlans();
-    savePrograms();
-    render();
-    showToast("샘플 데이터를 복원했습니다.");
-  });
-
   els.adminLoginForm.addEventListener("submit", adminLogin);
   els.adminLogoutButton.addEventListener("click", adminLogout);
   els.copyViewerLinkButton.addEventListener("click", copyViewerLink);
-  els.exportJsonButton.addEventListener("click", exportJson);
   els.exportSheetsButton.addEventListener("click", exportSheetsJson);
   els.loadSheetsButton.addEventListener("click", loadSheetsSnapshot);
   els.fetchNewsButton.addEventListener("click", fetchNews);
@@ -408,6 +216,9 @@ function renderRole() {
   document.body.dataset.role = state.role;
   const isAdmin = state.role === "admin";
   const isViewer = state.role === "viewer";
+  const passwordLabel = els.adminPasswordInput.closest("label");
+  if (passwordLabel) passwordLabel.hidden = isAdmin;
+  els.adminLoginStatus.hidden = !isAdmin;
   els.adminPasswordInput.value = isAdmin ? "••••••••" : "";
   els.adminPasswordInput.disabled = isAdmin || isViewer;
   els.adminLoginButton.hidden = isAdmin || isViewer;
@@ -597,7 +408,6 @@ function renderArticleRow(article) {
   const statusChip = getStatusChip(article.reviewStatus);
   const duplicateChip = duplicate ? '<span class="chip warn">중복 의심</span>' : "";
   const representativeChip = article.representative ? '<span class="chip">대표</span>' : "";
-  const sheetChip = article.sheetRow ? `<span class="chip neutral">수기목록 #${escapeHtml(article.sheetRow)}</span>` : "";
   const sourceTypeChip = `<span class="chip neutral">${escapeHtml(getSourceTypeLabel(article.sourceType))}</span>`;
   const program = findProgram(article.matchedProgram) || {
     id: article.matchedProgram || "",
@@ -649,7 +459,6 @@ function renderArticleRow(article) {
         <div class="article-title">
           <button type="button" data-select="${escapeAttr(article.id)}">${escapeHtml(article.title)}</button>
           <div class="keyword-cell">
-            ${sheetChip}
             ${sourceTypeChip}
             ${article.matchedKeywords.map((keyword) => `<span class="chip neutral">${escapeHtml(keyword)}</span>`).join("")}
             ${duplicateChip}
@@ -743,7 +552,6 @@ function getFilteredArticles() {
           getSourceTypeLabel(article.sourceType),
           article.summary,
           article.url,
-          article.sheetRow ? `수기목록 ${article.sheetRow}` : "",
           article.programName,
           article.programCategory,
           article.quality,
@@ -882,7 +690,7 @@ function addKeyword(event) {
   if (state.role !== "admin") return;
 
   const keyword = els.newKeyword.value.trim();
-  const type = els.newKeywordType.value;
+  const type = normalizeKeywordType(els.newKeywordType.value, keyword);
   const notes = els.newKeywordNotes.value.trim();
   if (!keyword) return;
 
@@ -1168,7 +976,7 @@ function buildSheetsPayload() {
 }
 
 function applySheetsSnapshot(sheets) {
-  const items = Array.isArray(sheets.items) ? sheets.items : [];
+  const items = Array.isArray(sheets.items) ? sheets.items.filter((item) => !isHardcodedManualArticle(item)) : [];
   const keywords = Array.isArray(sheets.keywords) ? sheets.keywords : [];
   const plans = Array.isArray(sheets.plans) ? sheets.plans : [];
   const programs = Array.isArray(sheets.programs) ? sheets.programs : [];
@@ -1198,14 +1006,16 @@ function applySheetsSnapshot(sheets) {
   }
 
   if (keywords.length) {
-    state.keywords = keywords.map((keyword) => ({
-      id: keyword.keyword_id || makeId("kw"),
-      keyword: keyword.keyword,
-      type: keyword.type || "캠페인명",
-      source: keyword.source || "Google Sheets",
-      active: parseBoolean(keyword.active),
-      notes: keyword.notes || ""
-    }));
+    state.keywords = keywords
+      .filter((keyword) => keyword.keyword)
+      .map((keyword) => ({
+        id: keyword.keyword_id || makeId("kw"),
+        keyword: keyword.keyword,
+        type: normalizeKeywordType(keyword.type, keyword.keyword),
+        source: keyword.source || "Google Sheets",
+        active: parseBoolean(keyword.active),
+        notes: keyword.notes || ""
+      }));
   }
 
   if (plans.length) {
@@ -1221,18 +1031,21 @@ function applySheetsSnapshot(sheets) {
   }
 
   if (programs.length) {
-    state.programs = programs.map((program) => ({
-      id: program.program_id || makeId("program"),
-      year: program.year || DEFAULT_YEAR,
-      name: program.name,
-      category: program.category || "기타",
-      goal: program.goal || "",
-      changeGoal: program.change_goal || "",
-      indicators: program.indicators || "",
-      owners: program.owners || "",
-      partners: program.partners || "",
-      active: program.active === "" ? true : parseBoolean(program.active)
-    }));
+    const sanitizedPrograms = programs
+      .filter((program) => program.name && !isExcludedProgram(program))
+      .map((program) => ({
+        id: program.program_id || makeId("program"),
+        year: program.year || DEFAULT_YEAR,
+        name: program.name,
+        category: program.category || "기타",
+        goal: program.goal || "",
+        changeGoal: program.change_goal || "",
+        indicators: program.indicators || "",
+        owners: program.owners || "",
+        partners: program.partners || "",
+        active: program.active === "" ? true : parseBoolean(program.active)
+      }));
+    state.programs = sanitizedPrograms.length ? sanitizedPrograms : cloneDefaultPrograms();
   }
 
   saveArticles();
@@ -1339,7 +1152,10 @@ function getSourceTypeLabel(type) {
 }
 
 function getActiveKeywords() {
-  return state.keywords.filter((keyword) => keyword.active);
+  return state.keywords.filter((keyword) => keyword.active).map((keyword) => ({
+    ...keyword,
+    type: normalizeKeywordType(keyword.type, keyword.keyword)
+  }));
 }
 
 function extractKeywordCandidates(text) {
@@ -1523,11 +1339,39 @@ function findArticle(id) {
 }
 
 function findProgram(id) {
-  return state.programs.find((program) => program.id === id);
+  return state.programs.find((program) => program.id === id && !isExcludedProgram(program));
 }
 
 function getActivePrograms() {
-  return state.programs.filter((program) => program.active !== false);
+  return state.programs.filter((program) => program.active !== false && !isExcludedProgram(program));
+}
+
+function normalizeKeywordType(type, keyword = "") {
+  if (type === "조직명") return "조직명";
+  if (normalize(keyword).includes("서울환경연합") || normalize(keyword).includes("서울환경운동연합")) return "조직명";
+  return "캠페인명";
+}
+
+function isHardcodedManualArticle(article) {
+  const id = String(article && (article.id || article.item_id) || "");
+  if (id.startsWith("sheet-")) return true;
+  const sourceText = [
+    article && article.sheetRow,
+    article && article.ai_basis,
+    article && article.note,
+    article && article.relevanceBasis
+  ].join(" ");
+  return /수기\s*(시트|목록)/.test(sourceText);
+}
+
+function isExcludedProgram(program) {
+  const name = cleanCandidate(program && program.name);
+  const partners = String((program && (program.partners || program.source)) || "");
+  if (!name) return true;
+  if (name === "시민참여 정책 대응") return true;
+  if (partners === "기본 분류" && name.endsWith("정책 대응") && name !== "기타 정책 대응") return true;
+  if (partners === "목차" && name !== "투명성 TF") return true;
+  return false;
 }
 
 function inferProgramForText(text) {
@@ -1645,15 +1489,18 @@ function loadRole() {
 
 function loadArticles() {
   const loaded = loadCollection(ARTICLE_STORAGE_KEY, cloneSeedArticles, LEGACY_ARTICLE_STORAGE_KEY);
-  return loaded.map((article) => ({
-    ...article,
-    sourceType: article.sourceType || "media",
-    matchedProgram: article.matchedProgram || "program-citytreeclub-2026",
-    programName: article.programName || "나무의 권리 재인식 플랫폼: 시티트리클럽",
-    programCategory: article.programCategory || "생태도시",
-    quality: article.quality || "미분류",
-    qualityBasis: article.qualityBasis || "관리자 확인 필요"
-  }));
+  return loaded.filter((article) => !isHardcodedManualArticle(article)).map((article) => {
+    return {
+      ...article,
+      sourceType: article.sourceType || "media",
+      matchedKeywords: Array.isArray(article.matchedKeywords) ? article.matchedKeywords : splitList(article.matchedKeywords),
+      matchedProgram: article.matchedProgram || "program-2026-etc-response",
+      programName: article.programName || "기타 정책 대응",
+      programCategory: article.programCategory || "기타",
+      quality: article.quality || "미분류",
+      qualityBasis: article.qualityBasis || "관리자 확인 필요"
+    };
+  });
 }
 
 function loadCollection(key, fallback, legacyKey) {
@@ -1669,7 +1516,7 @@ function loadCollection(key, fallback, legacyKey) {
 }
 
 function cloneSeedArticles() {
-  return seedArticles.map((article) => ({ ...article, matchedKeywords: [...article.matchedKeywords] }));
+  return seedArticles.map((article) => ({ ...article, matchedKeywords: [...(article.matchedKeywords || [])] }));
 }
 
 function cloneDefaultKeywords() {

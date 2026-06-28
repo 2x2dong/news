@@ -18,6 +18,10 @@
   box-sizing: border-box;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 body {
   margin: 0;
   background: var(--bg);
@@ -104,6 +108,18 @@ button {
   color: var(--muted);
   font-size: 12px;
   font-weight: 800;
+}
+
+.login-form .login-status {
+  min-height: 40px;
+  align-items: center;
+  color: var(--primary);
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.login-form .login-status:not([hidden]) {
+  display: inline-flex;
 }
 
 .login-form input {

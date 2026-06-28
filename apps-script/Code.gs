@@ -163,7 +163,7 @@ function readSnapshot_() {
   ensureSheets_();
   const result = {};
   Object.keys(SHEET_SCHEMA).forEach((sheetName) => {
-    result[sheetName] = readRows_(sheetName);
+    result[sheetName] = sanitizeRowsForSheet_(sheetName, readRows_(sheetName));
   });
   return { ok: true, sheets: result, readAt: new Date().toISOString() };
 }
@@ -172,7 +172,7 @@ function writeSnapshot_(payload) {
   ensureSheets_();
   Object.keys(SHEET_SCHEMA).forEach((sheetName) => {
     const rows = payload[sheetName];
-    if (Array.isArray(rows)) replaceRows_(sheetName, rows);
+    if (Array.isArray(rows)) replaceRows_(sheetName, sanitizeRowsForSheet_(sheetName, rows));
   });
 }
 
@@ -202,15 +202,15 @@ function importPlan_(body) {
     "year"
   );
 
-  const programRows = uniquePrograms_([
+  const programRows = normalizeProgramRows_(uniquePrograms_([
     ...extractPrograms_(rawText, year),
     ...buildDefaultPrograms_(year)
-  ]);
+  ]));
   if (programRows.length) {
     upsertRows_("programs", programRows, "program_id");
   }
 
-  const existingKeywords = readRows_("keywords");
+  const existingKeywords = normalizeKeywordRows_(readRows_("keywords"));
   const existingKeywordKeys = {};
   const existingKeywordIds = {};
   existingKeywords.forEach((row) => {
@@ -272,7 +272,7 @@ function importPlan_(body) {
 
 function fetchNews_(body) {
   const year = String(body.year || new Date().getFullYear());
-  const activeKeywords = readRows_("keywords")
+  const activeKeywords = normalizeKeywordRows_(readRows_("keywords"))
     .filter((row) => String(row.active).toLowerCase() !== "false")
     .map((row) => row.keyword);
   const searchTerms = unique_(["서울환경연합", "서울환경운동연합", ...activeKeywords]).slice(0, 32);
@@ -290,13 +290,13 @@ function fetchNews_(body) {
 }
 
 function collectAndStoreNews_(searchTerms, year, trigger) {
-  const existingItems = readRows_("items");
+  const existingItems = normalizeItemRows_(readRows_("items"));
   const existingItemIds = {};
   existingItems.forEach((row) => {
     existingItemIds[row.item_id] = true;
   });
 
-  const programs = readRows_("programs");
+  const programs = normalizeProgramRows_(readRows_("programs"));
   const newsItems = collectNewsCandidates_(searchTerms, "2026-01-01", 5, 90, programs);
   const newItems = newsItems.filter((item) => !existingItemIds[item.item_id]);
   if (newItems.length) {
@@ -423,11 +423,6 @@ function extractPrograms_(text, year) {
     programs.push(makeProgramRow_(year, name, "사업계획서"));
   });
 
-  lines.slice(0, 80).forEach((line) => {
-    const name = cleanCandidate_(line.replace(/\s+\d+$/, ""));
-    if (isProgramName_(name)) programs.push(makeProgramRow_(year, name, "목차"));
-  });
-
   return uniquePrograms_(programs).slice(0, 80);
 }
 
@@ -478,18 +473,69 @@ function makeProgramRow_(year, name, source) {
 }
 
 function buildDefaultPrograms_(year) {
-  return ["생태도시", "기후행동", "자원순환", "시민참여", "모금", "기타"].map((category) => ({
-    program_id: `program-${year}-category-${hashString_(category)}`,
-    year,
-    name: `${category} 정책 대응`,
-    category,
-    goal: "사업계획서에 없는 돌발 현장 대응 기사 분류",
-    change_goal: "",
-    indicators: "",
-    owners: "",
-    partners: "기본 분류",
-    active: true
-  }));
+  return [
+    {
+      program_id: `program-${year}-category-${hashString_("기타")}`,
+      year,
+      name: "기타 정책 대응",
+      category: "기타",
+      goal: "사업계획서에 없는 돌발 현장 대응 기사 분류",
+      change_goal: "",
+      indicators: "",
+      owners: "",
+      partners: "기본 분류",
+      active: true
+    }
+  ];
+}
+
+function normalizeProgramRows_(rows) {
+  return rows.filter((row) => !isExcludedProgram_(row));
+}
+
+function sanitizeRowsForSheet_(sheetName, rows) {
+  if (sheetName === "programs") return normalizeProgramRows_(rows);
+  if (sheetName === "keywords") return normalizeKeywordRows_(rows);
+  if (sheetName === "items") return normalizeItemRows_(rows);
+  return rows;
+}
+
+function isExcludedProgram_(row) {
+  const name = cleanCandidate_(row && row.name);
+  const partners = String((row && row.partners) || "");
+  if (!name) return true;
+  if (name === "시민참여 정책 대응") return true;
+  if (partners === "기본 분류" && name.endsWith("정책 대응") && name !== "기타 정책 대응") return true;
+  if (partners === "목차" && name !== "투명성 TF") return true;
+  return false;
+}
+
+function normalizeKeywordType_(type, keyword) {
+  const value = String(type || "");
+  if (value === "조직명") return "조직명";
+  const normalizedKeyword = normalizeKey_(keyword || "");
+  if (normalizedKeyword.indexOf(normalizeKey_("서울환경연합")) !== -1) return "조직명";
+  if (normalizedKeyword.indexOf(normalizeKey_("서울환경운동연합")) !== -1) return "조직명";
+  return "캠페인명";
+}
+
+function normalizeKeywordRows_(rows) {
+  return rows.filter((row) => row && row.keyword).map((row) =>
+    Object.assign({}, row, {
+      type: normalizeKeywordType_(row.type, row.keyword)
+    })
+  );
+}
+
+function normalizeItemRows_(rows) {
+  return rows.filter((row) => !isHardcodedManualItem_(row));
+}
+
+function isHardcodedManualItem_(row) {
+  const id = String((row && row.item_id) || "");
+  if (id.indexOf("sheet-") === 0) return true;
+  const text = [row && row.ai_basis, row && row.snippet, row && row.matched_keyword].join(" ");
+  return /수기\s*(시트|목록)/.test(text);
 }
 
 function uniquePrograms_(programs) {
@@ -912,15 +958,16 @@ function readRows_(sheetName) {
 function replaceRows_(sheetName, rows) {
   const sheet = SpreadsheetApp.getActive().getSheetByName(sheetName);
   const headers = SHEET_SCHEMA[sheetName];
+  const normalizedRows = sanitizeRowsForSheet_(sheetName, rows);
   sheet.clearContents();
   sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
-  if (!rows.length) return;
-  const values = rows.map((row) => headers.map((header) => normalizeCell_(row && row[header])));
+  if (!normalizedRows.length) return;
+  const values = normalizedRows.map((row) => headers.map((header) => normalizeCell_(row && row[header])));
   sheet.getRange(2, 1, values.length, headers.length).setValues(values);
 }
 
 function upsertRows_(sheetName, rows, keyColumn) {
-  const current = readRows_(sheetName);
+  const current = sanitizeRowsForSheet_(sheetName, readRows_(sheetName));
   const byKey = {};
   current.forEach((row) => {
     byKey[row[keyColumn]] = row;
