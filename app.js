@@ -7,6 +7,7 @@ const ROLE_STORAGE_KEY = "news-dashboard:role:v5";
 const ADMIN_PASSWORD_STORAGE_KEY = "news-dashboard:admin-password:v6";
 const COLLECTION_START = "2026-01-01";
 const DEFAULT_YEAR = "2026";
+const ARTICLE_PAGE_SIZE = 25;
 
 const DEFAULT_CATEGORIES = ["생태도시", "기후행동", "자원순환", "시민참여", "모금", "기타"];
 const APP_CONFIG = {
@@ -75,6 +76,9 @@ let state = {
     source: "all",
     program: "all",
     quality: "all"
+  },
+  pagination: {
+    page: 1
   }
 };
 
@@ -101,6 +105,7 @@ function bindElements() {
     "qualitySelect",
     "keywordBars",
     "articleTable",
+    "articlePagination",
     "resultCount",
     "detailPanel",
     "detailTitle",
@@ -148,21 +153,25 @@ function bindElements() {
 function bindEvents() {
   els.searchInput.addEventListener("input", (event) => {
     state.filters.search = event.target.value.trim();
+    resetArticlePage();
     renderArticles();
   });
 
   els.sourceSelect.addEventListener("change", (event) => {
     state.filters.source = event.target.value;
+    resetArticlePage();
     renderArticles();
   });
 
   els.programSelect.addEventListener("change", (event) => {
     state.filters.program = event.target.value;
+    resetArticlePage();
     renderArticles();
   });
 
   els.qualitySelect.addEventListener("change", (event) => {
     state.filters.quality = event.target.value;
+    resetArticlePage();
     renderArticles();
   });
 
@@ -172,6 +181,7 @@ function bindEvents() {
       document.querySelectorAll("[data-filter-status]").forEach((item) => {
         item.classList.toggle("active", item === button);
       });
+      resetArticlePage();
       renderArticles();
     });
   });
@@ -439,8 +449,17 @@ function renderPlanSummary() {
 
 function renderArticles() {
   const filtered = getFilteredArticles();
-  els.resultCount.textContent = `${filtered.length}건 표시 중`;
-  els.articleTable.innerHTML = filtered.map(renderArticleRow).join("");
+  const totalPages = Math.max(1, Math.ceil(filtered.length / ARTICLE_PAGE_SIZE));
+  state.pagination.page = clamp(state.pagination.page, 1, totalPages);
+  const startIndex = (state.pagination.page - 1) * ARTICLE_PAGE_SIZE;
+  const pageArticles = filtered.slice(startIndex, startIndex + ARTICLE_PAGE_SIZE);
+  const endIndex = startIndex + pageArticles.length;
+
+  els.resultCount.textContent = filtered.length
+    ? `${filtered.length}건 중 ${startIndex + 1}-${endIndex}건 표시 · ${state.pagination.page}/${totalPages}쪽`
+    : "0건 표시 중";
+  els.articleTable.innerHTML = pageArticles.map(renderArticleRow).join("");
+  renderArticlePagination(filtered.length, totalPages);
 
   els.articleTable.querySelectorAll("[data-select]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -476,7 +495,55 @@ function renderArticles() {
     });
   });
 
+  els.articlePagination.querySelectorAll("[data-page]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.pagination.page = Number(button.dataset.page);
+      renderArticles();
+    });
+  });
+
   renderDetail();
+}
+
+function renderArticlePagination(totalCount, totalPages) {
+  if (totalCount <= ARTICLE_PAGE_SIZE) {
+    els.articlePagination.innerHTML = "";
+    return;
+  }
+
+  const current = state.pagination.page;
+  const pages = getVisiblePages(current, totalPages);
+  els.articlePagination.innerHTML = `
+    <button class="page-button" type="button" data-page="${current - 1}" ${current === 1 ? "disabled" : ""}>이전</button>
+    <div class="page-list">
+      ${pages
+        .map((page) =>
+          page === "gap"
+            ? '<span class="page-gap">...</span>'
+            : `<button class="page-button ${page === current ? "active" : ""}" type="button" data-page="${page}" aria-current="${
+                page === current ? "page" : "false"
+              }">${page}</button>`
+        )
+        .join("")}
+    </div>
+    <button class="page-button" type="button" data-page="${current + 1}" ${current === totalPages ? "disabled" : ""}>다음</button>
+  `;
+}
+
+function getVisiblePages(current, totalPages) {
+  if (totalPages <= 7) return Array.from({ length: totalPages }, (_, index) => index + 1);
+  const pages = [1];
+  const start = Math.max(2, current - 1);
+  const end = Math.min(totalPages - 1, current + 1);
+  if (start > 2) pages.push("gap");
+  for (let page = start; page <= end; page += 1) pages.push(page);
+  if (end < totalPages - 1) pages.push("gap");
+  pages.push(totalPages);
+  return pages;
+}
+
+function resetArticlePage() {
+  state.pagination.page = 1;
 }
 
 function renderArticleRow(article) {
@@ -485,7 +552,9 @@ function renderArticleRow(article) {
   const statusChip = getStatusChip(article.reviewStatus);
   const duplicateChip = duplicate ? '<span class="chip warn">중복 의심</span>' : "";
   const representativeChip = article.representative ? '<span class="chip">대표</span>' : "";
-  const sourceTypeChip = `<span class="chip neutral">${escapeHtml(getSourceTypeLabel(article.sourceType))}</span>`;
+  const relevanceChips = getRelevanceChips(article)
+    .map((tag) => `<span class="chip neutral">${escapeHtml(tag)}</span>`)
+    .join("");
   const program = findProgram(article.matchedProgram) || {
     id: article.matchedProgram || "",
     name: article.programName || "기타 정책 대응",
@@ -533,8 +602,8 @@ function renderArticleRow(article) {
         <div class="article-title">
           <button type="button" data-select="${escapeAttr(article.id)}">${escapeHtml(article.title)}</button>
           <div class="keyword-cell">
-            ${sourceTypeChip}
             ${article.matchedKeywords.map((keyword) => `<span class="chip neutral">${escapeHtml(keyword)}</span>`).join("")}
+            ${relevanceChips}
             ${duplicateChip}
             ${representativeChip}
           </div>
@@ -544,13 +613,6 @@ function renderArticleRow(article) {
       <td class="source-cell">
         <strong>${escapeHtml(article.source)}</strong><br />
         <span>${formatDate(article.publishedAt)}</span>
-      </td>
-      <td>
-        <div class="status-line">
-          ${statusChip}
-          <span class="chip neutral">${escapeHtml(article.relevanceBasis || "근거 미정")}</span>
-        </div>
-        <p class="basis-note">${escapeHtml(getBasisNote(article))}</p>
       </td>
       <td>
         <div class="program-quality-cell">
@@ -621,6 +683,7 @@ function getFilteredArticles() {
           article.url,
           article.programName,
           article.programCategory,
+          article.relevanceBasis,
           article.quality,
           article.matchedKeywords.join(" "),
           article.note
@@ -680,6 +743,7 @@ function addArticle(event) {
   };
   state.articles = [article, ...state.articles];
   state.selectedId = article.id;
+  resetArticlePage();
   saveArticles();
   els.articleForm.reset();
   render();
@@ -1200,6 +1264,67 @@ function getBasisNote(article) {
   if (article.relevanceBasis === "키워드 관련") return "키워드는 맞지만 활동 직접 언급은 사람이 확인";
   if (article.relevanceBasis === "직접 보도 후보") return "새로 추가되어 사람이 최종 확인";
   return "판정 근거를 확인해야 함";
+}
+
+function getRelevanceChips(article) {
+  const basis = String(article.relevanceBasis || "").trim();
+  const chips = [];
+  const score = basis.match(/AI\s*자동판정\s*(\d+)점/);
+  if (score) chips.push(`AI ${score[1]}점`);
+
+  basis
+    .replace(/AI\s*자동판정\s*\d+점[:：]?\s*/, "")
+    .split("/")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .forEach((part) => {
+      if (part.includes("수집 경로")) {
+        chips.push(formatCollectionRouteTag(part));
+        return;
+      }
+      part.split(",").forEach((reason) => chips.push(formatRelevanceReasonTag(reason)));
+    });
+
+  if (!chips.length && basis) chips.push(shortenTag(basis));
+  if (!chips.length) chips.push("근거 미정");
+  return uniqueList(chips.filter(Boolean)).slice(0, 5);
+}
+
+function formatRelevanceReasonTag(reason) {
+  const text = String(reason || "").trim();
+  if (!text) return "";
+  if (text.includes("조직명+캠페인명")) return "조직+캠페인";
+  if (text.includes("조직명 직접 언급")) return "조직명 직접 언급";
+  if (text.includes("캠페인명 직접 언급")) return "캠페인명 직접 언급";
+  if (text.includes("조직명 검색 결과")) return "조직명 검색";
+  if (text.includes("캠페인명 검색 결과")) return "캠페인명 검색";
+  if (text.includes("다른 지역")) return "지역조직 검토";
+  if (text.includes("조직명 미확인")) return "조직명 미확인";
+  if (text.includes("검색어 기반 후보")) return "검색어 후보";
+  return shortenTag(text.replace(/^서울환경연합\s*/, "").replace(/^서울환경운동연합\s*/, ""));
+}
+
+function formatCollectionRouteTag(route) {
+  const text = String(route || "").replace("수집 경로:", "").trim();
+  if (text.includes("네이버뉴스 최신순")) return "네이버 최신순";
+  if (text.includes("네이버뉴스 정확도순")) return "네이버 정확도순";
+  if (text.includes("네이버뉴스 직접")) return "네이버뉴스";
+  if (text.includes("Google News") || text.includes("Google")) return "구글뉴스";
+  if (text.includes("지정 검색어 정확")) return "정확검색";
+  return shortenTag(text);
+}
+
+function shortenTag(value) {
+  const text = String(value || "").trim();
+  return text.length > 18 ? `${text.slice(0, 18)}...` : text;
+}
+
+function uniqueList(values) {
+  return [...new Set(values)];
+}
+
+function clamp(value, min, max) {
+  return Math.min(Math.max(Number(value) || min, min), max);
 }
 
 function getStatusChip(status) {

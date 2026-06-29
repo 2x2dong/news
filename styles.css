@@ -490,6 +490,53 @@ button {
   overflow-x: auto;
 }
 
+.pagination {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  padding: 14px 18px 2px;
+}
+
+.page-list {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  justify-content: center;
+}
+
+.page-button {
+  min-width: 36px;
+  min-height: 34px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: white;
+  color: var(--text);
+  padding: 5px 10px;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.page-button:hover:not(:disabled),
+.page-button.active {
+  border-color: var(--primary);
+  background: #e6f4ef;
+  color: var(--primary-strong);
+}
+
+.page-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.page-gap {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;
