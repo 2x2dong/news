@@ -82,6 +82,11 @@ function doPost(event) {
     return jsonResponse_({ ok: true, action, keyword_id: body.keyword && body.keyword.keyword_id });
   }
 
+  if (action === "upsertProgram") {
+    upsertRows_("programs", [body.program], "program_id");
+    return jsonResponse_({ ok: true, action, program_id: body.program && body.program.program_id });
+  }
+
   return jsonResponse_({ ok: false, error: "unknown action" }, 400);
 }
 

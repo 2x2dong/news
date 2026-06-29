@@ -725,7 +725,7 @@ tbody tr.selected {
 }
 
 .program-row {
-  grid-template-columns: minmax(120px, 1fr) 72px;
+  grid-template-columns: minmax(120px, 1fr) 72px 82px;
 }
 
 .keyword-toggle {

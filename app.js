@@ -191,6 +191,12 @@ function bindEvents() {
     if (!button) return;
     toggleKeyword(button.dataset.keywordToggle);
   });
+
+  els.programList.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-program-toggle]");
+    if (!button) return;
+    toggleProgram(button.dataset.programToggle);
+  });
 }
 
 function render() {
@@ -276,7 +282,9 @@ function renderStats() {
 }
 
 function renderProgramManagement() {
-  const programs = getActivePrograms();
+  const programs = [...state.programs]
+    .filter((program) => !isExcludedProgram(program))
+    .sort((a, b) => Number(b.active !== false) - Number(a.active !== false) || a.name.localeCompare(b.name, "ko"));
   els.programList.innerHTML = programs
     .map(
       (program) => `
@@ -286,6 +294,11 @@ function renderProgramManagement() {
             <small>${escapeHtml(program.category || "기타")} · ${escapeHtml(program.goal || "분류 기준")}</small>
           </div>
           <span class="chip neutral">${escapeHtml(program.year || DEFAULT_YEAR)}</span>
+          <button class="keyword-toggle ${program.active === false ? "is-off" : ""}" type="button" data-program-toggle="${escapeAttr(
+            program.id
+          )}">
+            ${program.active === false ? "비활성" : "활성"}
+          </button>
         </div>
       `
     )
@@ -407,10 +420,12 @@ function renderArticleRow(article) {
     state.role === "admin"
       ? `
         <select class="review-select compact-select" data-article-program="${escapeAttr(article.id)}" aria-label="사업 분류">
-          ${getActivePrograms()
+          ${getProgramOptionsForArticle(program)
             .map(
               (item) =>
-                `<option value="${escapeAttr(item.id)}" ${item.id === program.id ? "selected" : ""}>${escapeHtml(item.name)}</option>`
+                `<option value="${escapeAttr(item.id)}" ${item.id === program.id ? "selected" : ""}>${escapeHtml(
+                  item.active === false ? `${item.name} (비활성)` : item.name
+                )}</option>`
             )
             .join("")}
         </select>
@@ -694,6 +709,24 @@ function toggleKeyword(id) {
   showToast("검색어 상태를 바꿨습니다.");
 }
 
+async function toggleProgram(id) {
+  if (state.role !== "admin") return;
+  const program = state.programs.find((item) => item.id === id);
+  if (!program) return;
+  const nextActive = program.active === false;
+
+  state.programs = state.programs.map((item) =>
+    item.id === id ? { ...item, active: nextActive } : item
+  );
+  if (state.filters.program === id && !nextActive) {
+    state.filters.program = "all";
+  }
+  savePrograms();
+  render();
+  showToast("사업 상태를 바꿨습니다.");
+  await persistProgram(findProgram(id));
+}
+
 async function adminLogin(event) {
   event.preventDefault();
   const password = els.adminPasswordInput.value.trim();
@@ -866,18 +899,7 @@ function buildSheetsPayload() {
       raw_text_file: "",
       raw_text_length: plan.rawTextLength
     })),
-    programs: state.programs.map((program) => ({
-      program_id: program.id,
-      year: program.year,
-      name: program.name,
-      category: program.category || "기타",
-      goal: program.goal || "",
-      change_goal: program.changeGoal || "",
-      indicators: program.indicators || "",
-      owners: program.owners || "",
-      partners: program.partners || "",
-      active: program.active
-    })),
+    programs: state.programs.map(toProgramSheetRow),
     keywords: state.keywords.filter(isAllowedKeyword).map((keyword) => ({
       keyword_id: keyword.id,
       keyword: keyword.keyword,
@@ -930,6 +952,37 @@ function buildSheetsPayload() {
         notes: "Vercel + Google Sheets MVP export"
       }
     ]
+  };
+}
+
+async function persistProgram(program) {
+  if (!program || !APP_CONFIG.appsScriptEndpoint || !getAdminPassword()) return;
+
+  try {
+    const response = await fetch(APP_CONFIG.appsScriptEndpoint, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ action: "upsertProgram", password: getAdminPassword(), program: toProgramSheetRow(program) })
+    });
+    const result = await response.json();
+    if (!response.ok || !result.ok) throw new Error(result.error || "program sync failed");
+  } catch (error) {
+    showToast("사업 상태는 화면에 반영됐고, 구글시트 저장을 누르면 저장됩니다.");
+  }
+}
+
+function toProgramSheetRow(program) {
+  return {
+    program_id: program.id,
+    year: program.year,
+    name: program.name,
+    category: program.category || "기타",
+    goal: program.goal || "",
+    change_goal: program.changeGoal || "",
+    indicators: program.indicators || "",
+    owners: program.owners || "",
+    partners: program.partners || "",
+    active: program.active !== false
   };
 }
 
@@ -1304,6 +1357,14 @@ function findProgram(id) {
 
 function getActivePrograms() {
   return state.programs.filter((program) => program.active !== false && !isExcludedProgram(program));
+}
+
+function getProgramOptionsForArticle(selectedProgram) {
+  const activePrograms = getActivePrograms();
+  if (!selectedProgram || !selectedProgram.id || activePrograms.some((program) => program.id === selectedProgram.id)) {
+    return activePrograms;
+  }
+  return [selectedProgram, ...activePrograms];
 }
 
 function normalizeKeywordType(type, keyword = "") {
