@@ -302,7 +302,7 @@ function collectAndStoreNews_(searchTerms, year, trigger) {
   });
 
   const programs = normalizeProgramRows_(readRows_("programs"));
-  const newsItems = collectNewsCandidates_(searchTerms, "2026-01-01", 35, 700, programs);
+  const newsItems = collectNewsCandidates_(searchTerms, "2026-01-01", 70, 1200, programs);
   const newItems = newsItems.filter((item) => {
     const dedupeKey = getItemDedupeKey_(item);
     return !existingById[item.item_id] && (!dedupeKey || !existingByDedupeKey[dedupeKey]);
@@ -811,9 +811,10 @@ function collectNewsCandidates_(terms, startDate, perKeywordLimit, totalLimit, p
   terms.forEach((term) => {
     if (results.length >= totalLimit) return;
     let addedForTerm = 0;
+    const termLimit = getTermLimit_(term, perKeywordLimit);
 
     buildNewsQueries_(term, startDate).forEach((queryInfo) => {
-      if (addedForTerm >= perKeywordLimit || results.length >= totalLimit) return;
+      if (addedForTerm >= termLimit || results.length >= totalLimit) return;
       const url = `https://news.google.com/rss/search?q=${encodeURIComponent(queryInfo.query)}&hl=ko&gl=KR&ceid=KR:ko`;
       let xml = "";
 
@@ -829,7 +830,7 @@ function collectNewsCandidates_(terms, startDate, perKeywordLimit, totalLimit, p
       }
 
       parseGoogleNewsItems_(xml).forEach((item) => {
-        if (addedForTerm >= perKeywordLimit || results.length >= totalLimit) return;
+        if (addedForTerm >= termLimit || results.length >= totalLimit) return;
         if (isExcludedNews_(item)) return;
         if (!matchesSearchTerm_(item, term)) return;
 
@@ -868,9 +869,9 @@ function collectNewsCandidates_(terms, startDate, perKeywordLimit, totalLimit, p
       });
     });
 
-    if (addedForTerm < perKeywordLimit && results.length < totalLimit) {
-      fetchNaverNewsItems_(term, startDate).forEach((item) => {
-        if (addedForTerm >= perKeywordLimit || results.length >= totalLimit) return;
+    if (addedForTerm < termLimit && results.length < totalLimit) {
+      fetchNaverNewsItems_(term, startDate, (termLimit - addedForTerm) * 3).forEach((item) => {
+        if (addedForTerm >= termLimit || results.length >= totalLimit) return;
         if (isExcludedNews_(item)) return;
         if (!matchesSearchTerm_(item, term)) return;
 
@@ -896,7 +897,7 @@ function collectNewsCandidates_(terms, startDate, perKeywordLimit, totalLimit, p
           matched_keyword: term,
           snippet: item.description,
           ai_summary: "",
-          ai_basis: `${relevance.basis} / 수집 경로: 네이버뉴스 직접 검색`,
+          ai_basis: `${relevance.basis} / 수집 경로: ${item.collection_label || "네이버뉴스 직접 검색"}`,
           review_status: relevance.status,
           include_in_press_count: relevance.status === "related",
           representative: false,
@@ -911,6 +912,11 @@ function collectNewsCandidates_(terms, startDate, perKeywordLimit, totalLimit, p
   });
 
   return results;
+}
+
+function getTermLimit_(term, defaultLimit) {
+  if (isOrganizationKeyword_(term)) return Math.max(defaultLimit, 120);
+  return defaultLimit;
 }
 
 function buildNewsQueries_(term, startDate) {
@@ -931,53 +937,119 @@ function buildNewsQueries_(term, startDate) {
   return queries;
 }
 
-function fetchNaverNewsItems_(term, startDate) {
+function fetchNaverNewsItems_(term, startDate, maxItems) {
   const dateStart = String(startDate || "2026-01-01");
   const ds = dateStart.replace(/-/g, ".");
   const compactStart = dateStart.replace(/-/g, "");
   const endDate = Utilities.formatDate(new Date(), "Asia/Seoul", "yyyy-MM-dd");
   const de = endDate.replace(/-/g, ".");
   const compactEnd = endDate.replace(/-/g, "");
-  const starts = [1, 11, 21, 31, 41];
-  const queries = isOrganizationKeyword_(term)
-    ? unique_([term, `"${term}"`])
-    : unique_([term, `"${term}"`, `${term} 서울환경연합`, `${term} 서울환경운동연합`, `서울환경연합 ${term}`, `서울환경운동연합 ${term}`]);
+  const limit = Math.max(Number(maxItems) || 80, 20);
+  const requests = buildNaverNewsRequests_(term, compactStart, compactEnd);
   const items = [];
   const seen = {};
 
-  queries.forEach((query) => {
-    starts.forEach((start) => {
-      const url = [
-        "https://search.naver.com/search.naver?where=news",
-        `query=${encodeURIComponent(query)}`,
-        "sm=tab_opt",
-        "sort=1",
-        "pd=3",
-        `ds=${encodeURIComponent(ds)}`,
-        `de=${encodeURIComponent(de)}`,
-        `nso=${encodeURIComponent(`so:dd,p:from${compactStart}to${compactEnd},a:all`)}`,
-        `start=${start}`
-      ].join("&");
+  for (const request of requests) {
+    for (const start of request.starts) {
+      if (items.length >= limit) return items;
+      const url = buildNaverNewsUrl_(request.query, request.sort, request.order, ds, de, compactStart, compactEnd, start);
 
       try {
         const response = UrlFetchApp.fetch(url, {
           muteHttpExceptions: true,
           headers: { "User-Agent": "Mozilla/5.0 news-dashboard" }
         });
-        if (response.getResponseCode() !== 200) return;
+        if (response.getResponseCode() !== 200) continue;
         parseNaverNewsItems_(response.getContentText()).forEach((item) => {
+          if (items.length >= limit) return;
           const key = normalizeKey_([item.source, item.title, item.url].join("|"));
           if (!key || seen[key]) return;
           seen[key] = true;
-          items.push(item);
+          items.push(Object.assign({}, item, { collection_label: request.label }));
         });
       } catch (error) {
-        return;
+        continue;
       }
-    });
-  });
+    }
+  }
 
   return items;
+}
+
+function buildNaverNewsRequests_(term, compactStart, compactEnd) {
+  const exact = `"${term}"`;
+  const requests = [
+    {
+      query: exact,
+      sort: "0",
+      order: "r",
+      label: "네이버뉴스 정확도순 정확검색",
+      starts: buildNaverStarts_(isOrganizationKeyword_(term) ? 12 : 6)
+    },
+    {
+      query: exact,
+      sort: "1",
+      order: "dd",
+      label: "네이버뉴스 최신순 정확검색",
+      starts: buildNaverStarts_(6)
+    },
+    {
+      query: term,
+      sort: "0",
+      order: "r",
+      label: "네이버뉴스 정확도순 일반검색",
+      starts: buildNaverStarts_(3)
+    }
+  ];
+
+  if (!isOrganizationKeyword_(term)) {
+    [
+      `${term} 서울환경연합`,
+      `${term} 서울환경운동연합`,
+      `서울환경연합 ${term}`,
+      `서울환경운동연합 ${term}`
+    ].forEach((query) => {
+      requests.push({
+        query,
+        sort: "0",
+        order: "r",
+        label: "네이버뉴스 조직명+검색어 보강",
+        starts: buildNaverStarts_(3)
+      });
+    });
+  }
+
+  return requests;
+}
+
+function buildNaverStarts_(pageCount) {
+  return Array.from({ length: pageCount }, (_, index) => index * 10 + 1);
+}
+
+function buildNaverNewsUrl_(query, sort, order, ds, de, compactStart, compactEnd, start) {
+  return [
+    "https://search.naver.com/search.naver?ssc=tab.news.all",
+    `query=${encodeURIComponent(query)}`,
+    "sm=tab_opt",
+    `sort=${encodeURIComponent(sort)}`,
+    "photo=0",
+    "field=0",
+    "pd=3",
+    `ds=${encodeURIComponent(ds)}`,
+    `de=${encodeURIComponent(de)}`,
+    "docid=",
+    "qdt=1",
+    "related=0",
+    "mynews=0",
+    "office_type=0",
+    "office_section_code=0",
+    "news_office_checked=",
+    `nso=${encodeURIComponent(`so:${order},p:from${compactStart}to${compactEnd}`)}`,
+    "is_sug_officeid=0",
+    "office_category=0",
+    "service_area=0",
+    `start=${encodeURIComponent(start)}`
+  ].join("&");
 }
 
 function parseNaverNewsItems_(html) {

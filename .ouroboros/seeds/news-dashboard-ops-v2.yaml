@@ -51,10 +51,12 @@ collection_expansion:
   strategy:
     - "지정 검색어를 단독으로 먼저 검색한 뒤 사업을 매칭한다."
     - "조직명+캠페인명 검색은 누락 보강용으로 뒤에 실행한다."
+    - "네이버뉴스는 정확도순 정확 일치(qdt=1) 검색을 우선 사용한다."
   sources:
     - "Google News RSS"
     - "Google News의 n.news.naver.com 제한 검색"
     - "Google News의 v.daum.net 제한 검색"
     - "네이버뉴스 직접 검색"
-  per_keyword_limit: 35
-  total_limit: 700
+  per_keyword_limit: 70
+  organization_keyword_limit: 120
+  total_limit: 1200
