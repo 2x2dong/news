@@ -259,14 +259,89 @@ function renderSourceOptions() {
 }
 
 function renderProgramOptions() {
-  const programs = getActivePrograms();
+  const options = getProgramFilterOptions();
   els.programSelect.innerHTML = [
-    '<option value="all">전체 사업</option>',
-    ...programs.map((program) => `<option value="${escapeAttr(program.id)}">${escapeHtml(program.name)}</option>`)
+    '<option value="all">전체 사업명</option>',
+    ...options.map((option) => `<option value="${escapeAttr(option.value)}">${escapeHtml(option.label)}</option>`)
   ].join("");
-  if (!programs.some((program) => program.id === state.filters.program)) state.filters.program = "all";
+  if (!options.some((option) => option.value === state.filters.program)) state.filters.program = "all";
   els.programSelect.value = state.filters.program;
   els.qualitySelect.value = state.filters.quality;
+}
+
+function getProgramFilterOptions() {
+  const articleCounts = new Map();
+  state.articles.forEach((article) => {
+    getArticleProgramFilterValues(article).forEach((value) => {
+      articleCounts.set(value, (articleCounts.get(value) || 0) + 1);
+    });
+  });
+
+  const options = new Map();
+  getActivePrograms().forEach((program) => {
+    const value = getProgramNameFilterValue(program.name);
+    if (options.has(value)) return;
+    options.set(value, {
+      value,
+      label: withArticleCount(program.name, articleCounts.get(value) || 0),
+      sortName: program.name,
+      active: true
+    });
+  });
+
+  state.articles.forEach((article) => {
+    const nameValue = article.programName ? getProgramNameFilterValue(article.programName) : "";
+    if (nameValue && !options.has(nameValue)) {
+      options.set(nameValue, {
+        value: nameValue,
+        label: withArticleCount(article.programName, articleCounts.get(nameValue) || 0),
+        sortName: article.programName,
+        active: true
+      });
+    }
+    if (nameValue) {
+      return;
+    }
+
+    const idValue = article.matchedProgram ? getProgramIdFilterValue(article.matchedProgram) : "";
+    if (idValue && !options.has(idValue)) {
+      const name = article.programName || article.matchedProgram || "사업명 없음";
+      options.set(idValue, {
+        value: idValue,
+        label: withArticleCount(`${name} (비활성)`, articleCounts.get(idValue) || 0),
+        sortName: name,
+        active: false
+      });
+      return;
+    }
+  });
+
+  return [...options.values()].sort(
+    (a, b) => Number(b.active) - Number(a.active) || a.sortName.localeCompare(b.sortName, "ko")
+  );
+}
+
+function getArticleProgramFilterValues(article) {
+  const values = [];
+  if (article.programName) values.push(getProgramNameFilterValue(article.programName));
+  if (!article.programName && article.matchedProgram) values.push(getProgramIdFilterValue(article.matchedProgram));
+  return [...new Set(values)];
+}
+
+function articleMatchesProgramFilter(article, filterValue) {
+  return getArticleProgramFilterValues(article).includes(filterValue);
+}
+
+function getProgramIdFilterValue(id) {
+  return `id:${id}`;
+}
+
+function getProgramNameFilterValue(name) {
+  return `name:${normalize(name)}`;
+}
+
+function withArticleCount(label, count) {
+  return count ? `${label} (${count}건)` : label;
 }
 
 function renderStats() {
@@ -553,7 +628,7 @@ function getFilteredArticles() {
       );
       if (search && !haystack.includes(search)) return false;
       if (state.filters.source !== "all" && article.source !== state.filters.source) return false;
-      if (state.filters.program !== "all" && article.matchedProgram !== state.filters.program) return false;
+      if (state.filters.program !== "all" && !articleMatchesProgramFilter(article, state.filters.program)) return false;
       if (state.filters.quality !== "all" && article.quality !== state.filters.quality) return false;
       if (state.filters.status === "related") return article.reviewStatus === "related";
       if (state.filters.status === "needs-review") return article.reviewStatus === "needs-review";
@@ -718,7 +793,7 @@ async function toggleProgram(id) {
   state.programs = state.programs.map((item) =>
     item.id === id ? { ...item, active: nextActive } : item
   );
-  if (state.filters.program === id && !nextActive) {
+  if (state.filters.program === getProgramNameFilterValue(program.name) && !nextActive) {
     state.filters.program = "all";
   }
   savePrograms();
@@ -1408,14 +1483,80 @@ function isExcludedProgram(program) {
 
 function inferProgramForText(text) {
   const normalized = normalize(text);
-  const direct = getActivePrograms().find((program) => normalized.includes(normalize(program.name)));
+  const activePrograms = getActivePrograms();
+  const direct = findDirectProgramForText(normalized, activePrograms);
   if (direct) return direct;
+  const campaign = findCampaignProgramForText(normalized, activePrograms);
+  if (campaign) return campaign;
   const category = inferCategory(text);
+  const policyProgram = findPolicyProgramForText(normalized, category, activePrograms);
+  if (policyProgram) return policyProgram;
   return (
-    getActivePrograms().find((program) => program.category === category) ||
-    getActivePrograms().find((program) => program.category === "기타") ||
+    activePrograms.find((program) => normalize(program.name) === normalize("기타 정책 대응")) ||
+    activePrograms.find((program) => program.category === "기타") ||
     cloneDefaultPrograms().find((program) => program.category === "기타")
   );
+}
+
+function findDirectProgramForText(normalizedText, programs) {
+  return programs.find((program) => {
+    const name = normalize(program.name);
+    return name && normalizedText.includes(name);
+  });
+}
+
+function findCampaignProgramForText(normalizedText, programs) {
+  const rules = [
+    { signals: ["시티트리클럽"], names: ["시티트리클럽"] },
+    { signals: ["플라스틱방앗간"], names: ["플라스틱방앗간"] },
+    { signals: ["씨앗의숲"], names: ["씨앗의숲"] },
+    { signals: ["지구를구하장", "세계제로웨이스트의날"], names: ["지구를구하장", "제로웨이스트의날"] },
+    { signals: ["도시의풍경reboot", "도시의풍경"], names: ["도시의풍경reboot", "도시의풍경"] },
+    { signals: ["라이드어스"], names: ["라이드어스", "교통", "자전거"] },
+    { signals: ["불편클럽"], names: ["불편클럽"] },
+    { signals: ["참새클럽"], names: ["참새클럽"] }
+  ];
+  const matchedRule = rules.find((rule) => rule.signals.some((signal) => normalizedText.includes(normalize(signal))));
+  if (!matchedRule) return null;
+  return programs.find((program) => {
+    const name = normalize(program.name);
+    return matchedRule.names.some((signal) => name.includes(normalize(signal)));
+  });
+}
+
+function findPolicyProgramForText(normalizedText, category, programs) {
+  const categoryPrograms = programs.filter((program) => program.category === category);
+  const policyPrograms = categoryPrograms.filter(isPolicyProgram);
+  const hasPolicySignal = [
+    "정책",
+    "대응",
+    "모니터링",
+    "제도",
+    "조례",
+    "규제",
+    "감축",
+    "재사용",
+    "다회용",
+    "일회용",
+    "포장재",
+    "폐기물",
+    "순환경제",
+    "탈플라스틱",
+    "플라스틱",
+    "자원순환",
+    "쓰레기",
+    "재활용"
+  ].some((word) => normalizedText.includes(normalize(word)));
+
+  if (policyPrograms.length && (hasPolicySignal || category === "자원순환" || category === "기타")) {
+    return policyPrograms[0];
+  }
+  return null;
+}
+
+function isPolicyProgram(program) {
+  const name = normalize(program && program.name);
+  return ["정책", "대응", "모니터링", "감시", "제안"].some((word) => name.includes(normalize(word)));
 }
 
 function inferCategory(text) {

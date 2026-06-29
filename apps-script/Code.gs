@@ -321,7 +321,12 @@ function collectAndStoreNews_(searchTerms, year, trigger) {
       return Object.assign({}, existing, item, { item_id: existing.item_id });
     })
     .filter(Boolean);
-  const rowsToWrite = [...newItems, ...refreshItems];
+  const refreshedIds = {};
+  [...newItems, ...refreshItems].forEach((item) => {
+    refreshedIds[item.item_id] = true;
+  });
+  const reclassifiedItems = reclassifyExistingAutoItems_(existingItems, programs, refreshedIds);
+  const rowsToWrite = [...newItems, ...refreshItems, ...reclassifiedItems];
   if (rowsToWrite.length) {
     upsertRows_("items", rowsToWrite, "item_id");
   }
@@ -343,7 +348,7 @@ function collectAndStoreNews_(searchTerms, year, trigger) {
     "run_id"
   );
 
-  return { newsItems, newItems, refreshItems };
+  return { newsItems, newItems, refreshItems: [...refreshItems, ...reclassifiedItems] };
 }
 
 function shouldRefreshAutoItem_(row) {
@@ -351,6 +356,37 @@ function shouldRefreshAutoItem_(row) {
   const quality = String(row.quality || "");
   const status = String(row.review_status || "");
   return !quality || !status || basis.indexOf("Google News RSS 후보") !== -1 || basis.indexOf("AI 자동판정") !== -1;
+}
+
+function reclassifyExistingAutoItems_(existingItems, programs, refreshedIds) {
+  return existingItems
+    .map((row) => {
+      if (!row || refreshedIds[row.item_id] || !isMediaItem_(row) || !shouldRefreshAutoItem_(row)) return null;
+      const item = {
+        title: row.title,
+        description: [row.snippet, row.ai_summary].filter(Boolean).join(" "),
+        source: row.source_name,
+        published_at: row.published_at,
+        url: row.url
+      };
+      const term = row.matched_keyword || "";
+      const programMatch = matchProgram_(item, term, programs);
+      const quality = inferArticleQuality_(item);
+      const next = Object.assign({}, row, {
+        program_id: programMatch.program_id,
+        program_name: programMatch.name,
+        program_category: programMatch.category,
+        quality: quality.quality,
+        quality_basis: quality.basis
+      });
+      const changed = next.program_id !== row.program_id ||
+        next.program_name !== row.program_name ||
+        next.program_category !== row.program_category ||
+        next.quality !== row.quality ||
+        next.quality_basis !== row.quality_basis;
+      return changed ? next : null;
+    })
+    .filter(Boolean);
 }
 
 function getItemDedupeKey_(row) {
@@ -1207,14 +1243,84 @@ function inferArticleRelevance_(item, term, programs) {
 function matchProgram_(item, term, programs) {
   const haystack = normalizeKey_([item.title, item.description, term].join(" "));
   const activePrograms = programs.filter((program) => String(program.active).toLowerCase() !== "false");
-  const direct = activePrograms.find((program) => haystack.indexOf(normalizeKey_(program.name)) !== -1);
+  const direct = findDirectProgram_(haystack, activePrograms);
   if (direct) return direct;
 
+  const campaign = findCampaignProgram_(haystack, activePrograms);
+  if (campaign) return campaign;
+
   const category = inferProgramCategory_(haystack);
-  const fallback = activePrograms.find((program) => program.category === category) ||
-    activePrograms.find((program) => program.category === "기타") ||
+  const policyProgram = findPolicyProgram_(haystack, category, activePrograms);
+  if (policyProgram) return policyProgram;
+
+  return findDefaultProgram_(activePrograms);
+}
+
+function findDirectProgram_(haystack, programs) {
+  return programs.find((program) => {
+    const name = normalizeKey_(program.name);
+    return name && haystack.indexOf(name) !== -1;
+  });
+}
+
+function findCampaignProgram_(haystack, programs) {
+  const rules = [
+    { signals: ["시티트리클럽"], names: ["시티트리클럽"] },
+    { signals: ["플라스틱방앗간"], names: ["플라스틱방앗간"] },
+    { signals: ["씨앗의숲"], names: ["씨앗의숲"] },
+    { signals: ["지구를구하장", "세계제로웨이스트의날"], names: ["지구를구하장", "제로웨이스트의날"] },
+    { signals: ["도시의풍경reboot", "도시의풍경"], names: ["도시의풍경reboot", "도시의풍경"] },
+    { signals: ["라이드어스"], names: ["라이드어스", "교통", "자전거"] },
+    { signals: ["불편클럽"], names: ["불편클럽"] },
+    { signals: ["참새클럽"], names: ["참새클럽"] }
+  ];
+  const matchedRule = rules.find((rule) => rule.signals.some((signal) => haystack.indexOf(normalizeKey_(signal)) !== -1));
+  if (!matchedRule) return null;
+  return programs.find((program) => {
+    const name = normalizeKey_(program.name);
+    return matchedRule.names.some((signal) => name.indexOf(normalizeKey_(signal)) !== -1);
+  });
+}
+
+function findPolicyProgram_(haystack, category, programs) {
+  const categoryPrograms = programs.filter((program) => program.category === category);
+  const policyPrograms = categoryPrograms.filter(isPolicyProgram_);
+  const hasPolicySignal = [
+    "정책",
+    "대응",
+    "모니터링",
+    "제도",
+    "조례",
+    "규제",
+    "감축",
+    "재사용",
+    "다회용",
+    "일회용",
+    "포장재",
+    "폐기물",
+    "순환경제",
+    "탈플라스틱",
+    "플라스틱",
+    "자원순환",
+    "쓰레기",
+    "재활용"
+  ].some((word) => haystack.indexOf(normalizeKey_(word)) !== -1);
+
+  if (policyPrograms.length && (hasPolicySignal || category === "자원순환" || category === "기타")) {
+    return policyPrograms[0];
+  }
+  return null;
+}
+
+function isPolicyProgram_(program) {
+  const name = normalizeKey_(program && program.name);
+  return ["정책", "대응", "모니터링", "감시", "제안"].some((word) => name.indexOf(normalizeKey_(word)) !== -1);
+}
+
+function findDefaultProgram_(programs) {
+  return programs.find((program) => normalizeKey_(program.name) === normalizeKey_("기타 정책 대응")) ||
+    programs.find((program) => program.category === "기타") ||
     { program_id: "", name: "기타 정책 대응", category: "기타" };
-  return fallback;
 }
 
 function inferArticleQuality_(item) {
