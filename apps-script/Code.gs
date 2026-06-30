@@ -29,6 +29,92 @@ const SHEET_SCHEMA = {
   fetch_runs: ["run_id", "started_at", "finished_at", "trigger", "query_count", "item_count", "status", "notes"]
 };
 
+const KNOWN_SOURCE_HOSTS_ = {
+  "yna.co.kr": "연합뉴스",
+  "newsis.com": "뉴시스",
+  "news1.kr": "뉴스1",
+  "khan.co.kr": "경향신문",
+  "hani.co.kr": "한겨레",
+  "hankookilbo.com": "한국일보",
+  "joongang.co.kr": "중앙일보",
+  "chosun.com": "조선일보",
+  "donga.com": "동아일보",
+  "segye.com": "세계일보",
+  "kmib.co.kr": "국민일보",
+  "seoul.co.kr": "서울신문",
+  "munhwa.com": "문화일보",
+  "mk.co.kr": "매일경제",
+  "hankyung.com": "한국경제",
+  "edaily.co.kr": "이데일리",
+  "fnnews.com": "파이낸셜뉴스",
+  "news.mt.co.kr": "머니투데이",
+  "mt.co.kr": "머니투데이",
+  "asiae.co.kr": "아시아경제",
+  "biz.chosun.com": "조선비즈",
+  "nocutnews.co.kr": "노컷뉴스",
+  "ohmynews.com": "오마이뉴스",
+  "pressian.com": "프레시안",
+  "mediatoday.co.kr": "미디어오늘",
+  "sisain.co.kr": "시사IN",
+  "sisajournal.com": "시사저널",
+  "newstomato.com": "뉴스토마토",
+  "newspim.com": "뉴스핌",
+  "naeil.com": "내일신문",
+  "labortoday.co.kr": "매일노동뉴스",
+  "womennews.co.kr": "여성신문",
+  "ytn.co.kr": "YTN",
+  "news.kbs.co.kr": "KBS",
+  "imbc.com": "MBC",
+  "sbs.co.kr": "SBS",
+  "jtbc.co.kr": "JTBC",
+  "mbn.co.kr": "MBN",
+  "vegannews.co.kr": "비건뉴스",
+  "safetimes.co.kr": "세이프타임즈",
+  "ngonews.kr": "한국NGO신문",
+  "4th.kr": "포쓰저널",
+  "ekn.kr": "에너지경제",
+  "gukjenews.com": "국제뉴스",
+  "ilyo.co.kr": "일요신문",
+  "news.skbroadband.com": "B tv 뉴스",
+  "newsclaim.co.kr": "뉴스클레임",
+  "skyedaily.com": "스카이데일리"
+};
+
+const NAVER_PRESS_CODES_ = {
+  "001": "연합뉴스",
+  "003": "뉴시스",
+  "005": "국민일보",
+  "008": "머니투데이",
+  "009": "매일경제",
+  "011": "서울경제",
+  "014": "파이낸셜뉴스",
+  "015": "한국경제",
+  "016": "헤럴드경제",
+  "018": "이데일리",
+  "020": "동아일보",
+  "021": "문화일보",
+  "022": "세계일보",
+  "023": "조선일보",
+  "025": "중앙일보",
+  "028": "한겨레",
+  "029": "디지털타임스",
+  "030": "전자신문",
+  "031": "아이뉴스24",
+  "032": "경향신문",
+  "047": "오마이뉴스",
+  "052": "YTN",
+  "055": "SBS",
+  "056": "KBS",
+  "057": "MBN",
+  "079": "노컷뉴스",
+  "214": "MBC",
+  "277": "아시아경제",
+  "366": "조선비즈",
+  "421": "뉴스1",
+  "437": "JTBC",
+  "469": "한국일보"
+};
+
 function doGet(event) {
   ensureSheets_();
   const action = event.parameter.action || "snapshot";
@@ -394,7 +480,14 @@ function shouldRefreshAutoItem_(row) {
   const basis = String(row.ai_basis || "");
   const quality = String(row.quality || "");
   const status = String(row.review_status || "");
-  return !quality || !status || basis.indexOf("Google News RSS 후보") !== -1 || basis.indexOf("AI 자동판정") !== -1;
+  const source = String(row.source_name || "");
+  return !quality ||
+    !status ||
+    !row.published_at ||
+    looksLikeDomain_(source) ||
+    source === "언론사" ||
+    basis.indexOf("Google News RSS 후보") !== -1 ||
+    basis.indexOf("AI 자동판정") !== -1;
 }
 
 function reclassifyExistingAutoItems_(existingItems, programs, refreshedIds) {
@@ -408,17 +501,22 @@ function reclassifyExistingAutoItems_(existingItems, programs, refreshedIds) {
         published_at: row.published_at,
         url: row.url
       };
+      const enrichedItem = enrichNewsItem_(item);
       const term = row.matched_keyword || "";
-      const programMatch = matchProgram_(item, term, programs);
-      const quality = inferArticleQuality_(item);
+      const programMatch = matchProgram_(enrichedItem, term, programs);
+      const quality = inferArticleQuality_(enrichedItem);
       const next = Object.assign({}, row, {
+        source_name: enrichedItem.source || row.source_name,
+        published_at: enrichedItem.published_at || row.published_at,
         program_id: programMatch.program_id,
         program_name: programMatch.name,
         program_category: programMatch.category,
         quality: quality.quality,
         quality_basis: quality.basis
       });
-      const changed = next.program_id !== row.program_id ||
+      const changed = next.source_name !== row.source_name ||
+        next.published_at !== row.published_at ||
+        next.program_id !== row.program_id ||
         next.program_name !== row.program_name ||
         next.program_category !== row.program_category ||
         next.quality !== row.quality ||
@@ -910,6 +1008,7 @@ function collectNewsCandidates_(terms, startDate, perKeywordLimit, totalLimit, p
       }
 
       parseGoogleNewsItems_(xml).forEach((item) => {
+        item = enrichNewsItem_(item);
         if (addedForTerm >= termLimit || results.length >= totalLimit) return;
         if (isExcludedNews_(item)) return;
         if (!matchesSearchTerm_(item, term)) return;
@@ -929,14 +1028,14 @@ function collectNewsCandidates_(terms, startDate, perKeywordLimit, totalLimit, p
           title: item.title,
           url: item.url,
           canonical_url: item.url,
-          source_name: item.source || "Google News",
+          source_name: item.source || sourceNameFromUrl_(item.url),
           source_type: "media",
           published_at: item.published_at,
           discovered_at: new Date().toISOString(),
           matched_keyword: term,
           snippet: item.description,
           ai_summary: "",
-          ai_basis: `${relevance.basis} / 수집 경로: ${queryInfo.label}`,
+          ai_basis: `${relevance.basis} / 수집 경로: Google News RSS ${queryInfo.label}`,
           review_status: relevance.status,
           include_in_press_count: relevance.status === "related",
           representative: false,
@@ -951,6 +1050,7 @@ function collectNewsCandidates_(terms, startDate, perKeywordLimit, totalLimit, p
 
     if (addedForTerm < termLimit && results.length < totalLimit) {
       fetchNaverNewsItems_(term, startDate, (termLimit - addedForTerm) * 3).forEach((item) => {
+        item = enrichNewsItem_(item);
         if (addedForTerm >= termLimit || results.length >= totalLimit) return;
         if (isExcludedNews_(item)) return;
         if (!matchesSearchTerm_(item, term)) return;
@@ -1156,18 +1256,23 @@ function parseNaverNewsItems_(html) {
     if (!isLikelyArticleUrl_(url)) return;
 
     const contentMatch = section.match(/"content":"((?:\\.|[^"\\])*)"\s*,\s*"contentHref":"(https?:\/\/[^"\\]+)"/);
-    const sourceMatch = section.match(/"sourceProfile":\{[\s\S]*?"title":"((?:\\.|[^"\\])+)".*?"titleHref":"https:\/\/media\.naver\.com\/press\/[^"]+"/);
-    const dateMatch = section.match(/"text":"([0-9]{4}\.[0-9]{1,2}\.[0-9]{1,2}\.|[0-9]+[분시간일]\s*전|[0-9]{1,2}\.[0-9]{1,2}\.)"/);
+    const sourceMatch = section.match(/"sourceProfile":\{[\s\S]{0,1500}?"title":"((?:\\.|[^"\\])+)"/);
+    const dateMatch = section.match(/"text":"([0-9]{4}\.[0-9]{1,2}\.[0-9]{1,2}\.|[0-9]+[분시간일주]\s*전|어제|오늘|[0-9]{1,2}\.[0-9]{1,2}\.)"/);
     const title = stripTags_(decodeNaverJsonText_(article[1]));
     const description = contentMatch ? stripTags_(decodeNaverJsonText_(contentMatch[1])) : "";
-    const source = sourceMatch ? stripTags_(decodeNaverJsonText_(sourceMatch[1])) : sourceNameFromUrl_(url);
+    const source = normalizeSourceName_(sourceMatch ? stripTags_(decodeNaverJsonText_(sourceMatch[1])) : "", url);
 
     if (!title || !url) return;
     items.push({
       title,
       url,
       source,
-      published_at: formatNaverDate_(dateMatch ? dateMatch[1] : ""),
+      published_at: resolvePublishedDate_({
+        title,
+        description,
+        url,
+        published_at: dateMatch ? dateMatch[1] : ""
+      }),
       description
     });
   });
@@ -1201,19 +1306,96 @@ function isLikelyArticleUrl_(url) {
 }
 
 function sourceNameFromUrl_(url) {
-  const match = String(url || "").match(/^https?:\/\/(?:www\.)?([^\/?#]+)/i);
-  return match ? match[1] : "언론사";
+  const value = String(url || "");
+  const naverOid = value.match(/n\.news\.naver\.com\/(?:mnews\/)?article\/([0-9]{3})\//i);
+  if (naverOid && NAVER_PRESS_CODES_[naverOid[1]]) return NAVER_PRESS_CODES_[naverOid[1]];
+
+  const match = value.match(/^https?:\/\/([^\/?#]+)/i);
+  if (!match) return "언론사";
+  return knownSourceNameFromHost_(match[1]) || cleanHostName_(match[1]);
 }
 
 function formatNaverDate_(value) {
+  return normalizePublishedDate_(value);
+}
+
+function enrichNewsItem_(item) {
+  const next = Object.assign({}, item || {});
+  next.source = normalizeSourceName_(next.source, next.url);
+  next.published_at = resolvePublishedDate_(next);
+  return next;
+}
+
+function normalizeSourceName_(source, url) {
+  const value = stripTags_(source || "").replace(/\s+/g, " ").trim();
+  const fromUrl = sourceNameFromUrl_(url);
+  if (!value || value === "언론사") return fromUrl;
+  if (looksLikeDomain_(value)) {
+    return knownSourceNameFromHost_(value) || fromUrl || cleanHostName_(value);
+  }
+  return value;
+}
+
+function looksLikeDomain_(value) {
+  const text = String(value || "").trim();
+  return /^https?:\/\//i.test(text) || /^[a-z0-9.-]+\.[a-z]{2,}(?::[0-9]+)?$/i.test(text);
+}
+
+function knownSourceNameFromHost_(host) {
+  const key = cleanHostName_(host);
+  if (KNOWN_SOURCE_HOSTS_[key]) return KNOWN_SOURCE_HOSTS_[key];
+  const parts = key.split(".");
+  for (let index = 0; index < parts.length - 1; index += 1) {
+    const suffix = parts.slice(index).join(".");
+    if (KNOWN_SOURCE_HOSTS_[suffix]) return KNOWN_SOURCE_HOSTS_[suffix];
+  }
+  return "";
+}
+
+function cleanHostName_(host) {
+  return String(host || "")
+    .replace(/^https?:\/\//i, "")
+    .replace(/\/.*$/, "")
+    .replace(/^www\./i, "")
+    .replace(/^m\./i, "")
+    .toLowerCase();
+}
+
+function resolvePublishedDate_(item) {
+  const direct = normalizePublishedDate_(item && item.published_at);
+  if (direct) return direct;
+  return extractPublishedDateFromText_(
+    [item && item.title, item && item.description, item && item.url].filter(Boolean).join(" ")
+  );
+}
+
+function normalizePublishedDate_(value) {
   const text = String(value || "").trim();
   const full = text.match(/([0-9]{4})\.([0-9]{1,2})\.([0-9]{1,2})\./);
-  if (full) return `${full[1]}-${full[2].padStart(2, "0")}-${full[3].padStart(2, "0")}`;
+  if (full) return toValidDate_(full[1], full[2], full[3]);
+
+  const dashed = text.match(/([0-9]{4})[-\/]([0-9]{1,2})[-\/]([0-9]{1,2})/);
+  if (dashed) return toValidDate_(dashed[1], dashed[2], dashed[3]);
+
+  const korean = text.match(/([0-9]{4})년\s*([0-9]{1,2})월\s*([0-9]{1,2})일/);
+  if (korean) return toValidDate_(korean[1], korean[2], korean[3]);
+
+  const compact = text.match(/(^|[^0-9])(20[0-9]{2})([01][0-9])([0-3][0-9])([^0-9]|$)/);
+  if (compact) return toValidDate_(compact[2], compact[3], compact[4]);
 
   const today = new Date();
   const dayRelative = text.match(/([0-9]+)일\s*전/);
   if (dayRelative) {
     today.setDate(today.getDate() - Number(dayRelative[1]));
+    return Utilities.formatDate(today, "Asia/Seoul", "yyyy-MM-dd");
+  }
+  const weekRelative = text.match(/([0-9]+)주\s*전/);
+  if (weekRelative) {
+    today.setDate(today.getDate() - Number(weekRelative[1]) * 7);
+    return Utilities.formatDate(today, "Asia/Seoul", "yyyy-MM-dd");
+  }
+  if (/어제/.test(text)) {
+    today.setDate(today.getDate() - 1);
     return Utilities.formatDate(today, "Asia/Seoul", "yyyy-MM-dd");
   }
   if (/[분시간]\s*전/.test(text)) {
@@ -1227,6 +1409,20 @@ function formatNaverDate_(value) {
   }
 
   return "";
+}
+
+function extractPublishedDateFromText_(text) {
+  return normalizePublishedDate_(text);
+}
+
+function toValidDate_(year, month, day) {
+  const y = Number(year);
+  const m = Number(month);
+  const d = Number(day);
+  if (y < 2000 || m < 1 || m > 12 || d < 1 || d > 31) return "";
+  const date = new Date(y, m - 1, d);
+  if (date.getFullYear() !== y || date.getMonth() !== m - 1 || date.getDate() !== d) return "";
+  return `${String(y).padStart(4, "0")}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 }
 
 function inferArticleRelevance_(item, term, programs) {

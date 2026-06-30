@@ -74,6 +74,8 @@ let state = {
     search: "",
     status: "all",
     source: "all",
+    sources: [],
+    sourceSearch: "",
     program: "all",
     quality: "all"
   },
@@ -110,7 +112,8 @@ function bindElements() {
     "duplicateCount",
     "keywordChips",
     "searchInput",
-    "sourceSelect",
+    "sourceSearchInput",
+    "sourceOptionList",
     "programSelect",
     "qualitySelect",
     "keywordBars",
@@ -173,9 +176,24 @@ function bindEvents() {
     renderArticles();
   });
 
-  els.sourceSelect.addEventListener("change", (event) => {
-    state.filters.source = event.target.value;
+  els.sourceSearchInput.addEventListener("input", (event) => {
+    state.filters.sourceSearch = event.target.value.trim();
+    renderSourceOptions();
+  });
+
+  els.sourceOptionList.addEventListener("change", (event) => {
+    const checkbox = event.target.closest("[data-source-option]");
+    if (!checkbox) return;
+    toggleSourceFilter(checkbox.value, checkbox.checked);
+  });
+
+  els.sourceOptionList.addEventListener("click", (event) => {
+    const clearButton = event.target.closest("[data-source-clear]");
+    if (!clearButton) return;
+    state.filters.sources = [];
+    state.filters.source = "all";
     resetArticlePage();
+    renderSourceOptions();
     renderArticles();
   });
 
@@ -277,15 +295,54 @@ function renderKeywordChips() {
 }
 
 function renderSourceOptions() {
-  const sources = [...new Set(state.articles.map((article) => article.source))].sort((a, b) =>
-    a.localeCompare(b, "ko")
-  );
-  els.sourceSelect.innerHTML = [
-    '<option value="all">전체 출처</option>',
-    ...sources.map((source) => `<option value="${escapeAttr(source)}">${escapeHtml(source)}</option>`)
+  const sourceCounts = new Map();
+  state.articles.forEach((article) => {
+    const source = article.source || "출처 미정";
+    sourceCounts.set(source, (sourceCounts.get(source) || 0) + 1);
+  });
+  const sources = [...sourceCounts.keys()].sort((a, b) => a.localeCompare(b, "ko"));
+  const sourceSet = new Set(sources);
+  state.filters.sources = state.filters.sources.filter((source) => sourceSet.has(source));
+
+  const search = normalize(state.filters.sourceSearch);
+  const visibleSources = sources.filter((source) => !search || normalize(source).includes(search));
+  const selectedCount = state.filters.sources.length;
+  const selectedSet = new Set(state.filters.sources);
+
+  els.sourceSearchInput.value = state.filters.sourceSearch;
+  els.sourceOptionList.innerHTML = [
+    `<div class="source-filter-actions">
+      <strong>${selectedCount ? `${selectedCount}개 선택` : "전체 출처"}</strong>
+      <button type="button" data-source-clear ${selectedCount ? "" : "disabled"}>전체 보기</button>
+    </div>`,
+    visibleSources.length
+      ? visibleSources
+          .map((source) => {
+            const count = sourceCounts.get(source) || 0;
+            const checked = selectedSet.has(source) ? "checked" : "";
+            return `<label class="source-option-row">
+              <input type="checkbox" value="${escapeAttr(source)}" data-source-option ${checked} />
+              <span>${escapeHtml(source)}</span>
+              <small>${count}건</small>
+            </label>`;
+          })
+          .join("")
+      : '<p class="source-option-empty">일치하는 출처가 없습니다.</p>'
   ].join("");
-  if (!sources.includes(state.filters.source)) state.filters.source = "all";
-  els.sourceSelect.value = state.filters.source;
+}
+
+function toggleSourceFilter(source, checked) {
+  const selected = new Set(state.filters.sources);
+  if (checked) {
+    selected.add(source);
+  } else {
+    selected.delete(source);
+  }
+  state.filters.sources = [...selected].sort((a, b) => a.localeCompare(b, "ko"));
+  state.filters.source = state.filters.sources.length ? "custom" : "all";
+  resetArticlePage();
+  renderSourceOptions();
+  renderArticles();
 }
 
 function renderProgramOptions() {
@@ -755,7 +812,7 @@ function getFilteredArticles() {
         ].join(" ")
       );
       if (search && !haystack.includes(search)) return false;
-      if (state.filters.source !== "all" && article.source !== state.filters.source) return false;
+      if (state.filters.sources.length && !state.filters.sources.includes(article.source)) return false;
       if (state.filters.program !== "all" && !articleMatchesProgramFilter(article, state.filters.program)) return false;
       if (state.filters.quality !== "all" && article.quality !== state.filters.quality) return false;
       if (state.filters.status === "related") return article.reviewStatus === "related";
@@ -1245,7 +1302,7 @@ function applySheetsSnapshot(sheets) {
     state.articles = items.map((item) => ({
       id: item.item_id,
       title: item.title,
-      source: item.source_name,
+      source: item.source_name || "출처 미정",
       sourceType: item.source_type || "media",
       publishedAt: normalizeDateValue(item.published_at),
       url: item.url,

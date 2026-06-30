@@ -386,6 +386,91 @@ button {
   color: white;
 }
 
+.source-filter {
+  gap: 8px;
+}
+
+.source-option-list {
+  max-height: 210px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: white;
+}
+
+.source-filter-actions {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 38px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  background: #f8fbfa;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.source-filter-actions button {
+  min-height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: white;
+  color: var(--primary);
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.source-filter-actions button:disabled {
+  color: var(--muted);
+  opacity: 0.6;
+}
+
+.source-option-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 8px 10px;
+  border-bottom: 1px solid #eef1f4;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.source-option-row:last-child {
+  border-bottom: 0;
+}
+
+.source-option-row input {
+  width: auto;
+  min-height: 0;
+  margin: 0;
+}
+
+.source-option-row span {
+  min-width: 0;
+  color: var(--text);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.source-option-row small {
+  margin-left: auto;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.source-option-empty {
+  margin: 0;
+  padding: 12px 10px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .bar-list {
   display: grid;
   gap: 10px;
