@@ -23,6 +23,7 @@ const requiredDomIds = [
   "sortDateButton",
   "collectionStatus",
   "adminPanel",
+  "teamSelect",
   "planForm",
   "keywordForm",
   "keywordList",

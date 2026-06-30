@@ -121,6 +121,7 @@ let state = {
     sources: [],
     sourceSearch: "",
     majorSourcesOnly: false,
+    team: "all",
     program: "all",
     quality: "all"
   },
@@ -160,6 +161,7 @@ function bindElements() {
     "sourceSearchInput",
     "majorSourceToggle",
     "sourceOptionList",
+    "teamSelect",
     "programSelect",
     "qualitySelect",
     "keywordBars",
@@ -260,6 +262,12 @@ function bindEvents() {
     renderArticles();
   });
 
+  els.teamSelect.addEventListener("change", (event) => {
+    state.filters.team = event.target.value;
+    resetArticlePage();
+    renderArticles();
+  });
+
   els.qualitySelect.addEventListener("change", (event) => {
     state.filters.quality = event.target.value;
     resetArticlePage();
@@ -308,6 +316,7 @@ function render() {
   renderIntegrationStatus();
   renderKeywordChips();
   renderSourceOptions();
+  renderTeamOptions();
   renderProgramOptions();
   renderStats();
   renderKeywordBars();
@@ -410,6 +419,41 @@ function toggleSourceFilter(source, checked) {
   renderArticles();
 }
 
+function renderTeamOptions() {
+  const options = getTeamFilterOptions();
+  els.teamSelect.innerHTML = [
+    '<option value="all">전체 팀명</option>',
+    ...options.map((option) => `<option value="${escapeAttr(option.value)}">${escapeHtml(option.label)}</option>`)
+  ].join("");
+  if (!options.some((option) => option.value === state.filters.team)) state.filters.team = "all";
+  els.teamSelect.value = state.filters.team;
+}
+
+function getTeamFilterOptions() {
+  const counts = new Map();
+  state.articles.forEach((article) => {
+    const category = getArticleTeamName(article);
+    counts.set(category, (counts.get(category) || 0) + 1);
+  });
+
+  const categories = new Set(DEFAULT_CATEGORIES);
+  state.programs.forEach((program) => {
+    if (program.category) categories.add(program.category);
+  });
+  state.articles.forEach((article) => {
+    categories.add(getArticleTeamName(article));
+  });
+
+  return [...categories]
+    .filter(Boolean)
+    .map((category) => ({
+      value: getTeamFilterValue(category),
+      label: withArticleCount(category, counts.get(category) || 0),
+      category
+    }))
+    .sort((a, b) => getCategorySortIndex(a.category) - getCategorySortIndex(b.category) || a.category.localeCompare(b.category, "ko"));
+}
+
 function renderProgramOptions() {
   const options = getProgramFilterOptions();
   els.programSelect.innerHTML = [
@@ -484,6 +528,23 @@ function articleMatchesProgramFilter(article, filterValue) {
   return getArticleProgramFilterValues(article).includes(filterValue);
 }
 
+function articleMatchesTeamFilter(article, filterValue) {
+  return filterValue === "all" || getTeamFilterValue(getArticleTeamName(article)) === filterValue;
+}
+
+function getArticleTeamName(article) {
+  return article.programCategory || "기타";
+}
+
+function getTeamFilterValue(category) {
+  return `team:${normalize(category || "기타")}`;
+}
+
+function getCategorySortIndex(category) {
+  const index = DEFAULT_CATEGORIES.indexOf(category);
+  return index === -1 ? DEFAULT_CATEGORIES.length : index;
+}
+
 function getProgramIdFilterValue(id) {
   return `id:${id}`;
 }
@@ -499,7 +560,7 @@ function withArticleCount(label, count) {
 function renderStats() {
   const included = state.articles.filter(isCountedArticle);
   const representatives = state.articles.filter((article) => article.representative);
-  const reviewNeeded = state.articles.filter((article) => article.reviewStatus === "needs-review");
+  const reviewNeeded = state.articles.filter(articleNeedsAttention);
   const duplicateGroups = getDuplicateGroups(state.articles);
 
   els.includedCount.textContent = included.length.toString();
@@ -883,6 +944,7 @@ function getFilteredArticles() {
       if (search && !haystack.includes(search)) return false;
       if (state.filters.majorSourcesOnly && !isMajorMediaSource(article.source)) return false;
       if (state.filters.sources.length && !state.filters.sources.includes(article.source)) return false;
+      if (!articleMatchesTeamFilter(article, state.filters.team)) return false;
       if (state.filters.program !== "all" && !articleMatchesProgramFilter(article, state.filters.program)) return false;
       if (state.filters.quality !== "all" && article.quality !== state.filters.quality) return false;
       if (state.filters.status === "related") return article.reviewStatus === "related";
