@@ -232,7 +232,7 @@ button {
 
 .control-panel {
   position: sticky;
-  top: 16px;
+  top: 0;
   overflow: hidden;
 }
 
@@ -654,13 +654,13 @@ tbody tr.selected {
 
 .content-panel .detail-panel {
   position: sticky;
-  top: 16px;
+  top: 0;
   z-index: 6;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px 18px;
   margin: 0;
-  padding: 14px 18px;
+  padding: 10px 18px;
   border: 0;
   border-bottom: 1px solid var(--border);
   border-radius: 0;
