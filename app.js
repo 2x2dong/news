@@ -8,6 +8,49 @@ const ADMIN_PASSWORD_STORAGE_KEY = "news-dashboard:admin-password:v6";
 const COLLECTION_START = "2026-01-01";
 const DEFAULT_YEAR = "2026";
 const ARTICLE_PAGE_SIZE = 25;
+const MAJOR_MEDIA_SOURCES = new Set(
+  [
+    "연합뉴스",
+    "연합뉴스TV",
+    "뉴시스",
+    "뉴스1",
+    "KBS",
+    "MBC",
+    "SBS",
+    "YTN",
+    "JTBC",
+    "MBN",
+    "TV조선",
+    "채널A",
+    "경향신문",
+    "한겨레",
+    "한국일보",
+    "국민일보",
+    "서울신문",
+    "세계일보",
+    "문화일보",
+    "조선일보",
+    "중앙일보",
+    "동아일보",
+    "매일경제",
+    "한국경제",
+    "서울경제",
+    "머니투데이",
+    "파이낸셜뉴스",
+    "이데일리",
+    "아시아경제",
+    "헤럴드경제",
+    "조선비즈",
+    "전자신문",
+    "아이뉴스24",
+    "노컷뉴스",
+    "오마이뉴스",
+    "프레시안",
+    "미디어오늘",
+    "시사IN",
+    "시사저널"
+  ].map(normalizeSourceRankKey)
+);
 
 const DEFAULT_CATEGORIES = ["생태도시", "기후행동", "자원순환", "시민참여", "모금", "기타"];
 const APP_CONFIG = {
@@ -76,6 +119,7 @@ let state = {
     source: "all",
     sources: [],
     sourceSearch: "",
+    majorSourcesOnly: false,
     program: "all",
     quality: "all"
   },
@@ -113,6 +157,7 @@ function bindElements() {
     "keywordChips",
     "searchInput",
     "sourceSearchInput",
+    "majorSourceToggle",
     "sourceOptionList",
     "programSelect",
     "qualitySelect",
@@ -179,6 +224,13 @@ function bindEvents() {
   els.sourceSearchInput.addEventListener("input", (event) => {
     state.filters.sourceSearch = event.target.value.trim();
     renderSourceOptions();
+  });
+
+  els.majorSourceToggle.addEventListener("change", (event) => {
+    state.filters.majorSourcesOnly = event.target.checked;
+    resetArticlePage();
+    renderSourceOptions();
+    renderArticles();
   });
 
   els.sourceOptionList.addEventListener("change", (event) => {
@@ -305,14 +357,19 @@ function renderSourceOptions() {
   state.filters.sources = state.filters.sources.filter((source) => sourceSet.has(source));
 
   const search = normalize(state.filters.sourceSearch);
-  const visibleSources = sources.filter((source) => !search || normalize(source).includes(search));
+  const filteredSources = state.filters.majorSourcesOnly
+    ? sources.filter((source) => isMajorMediaSource(source))
+    : sources;
+  const visibleSources = filteredSources.filter((source) => !search || normalize(source).includes(search));
   const selectedCount = state.filters.sources.length;
   const selectedSet = new Set(state.filters.sources);
+  const majorCount = sources.filter((source) => isMajorMediaSource(source)).length;
 
   els.sourceSearchInput.value = state.filters.sourceSearch;
+  els.majorSourceToggle.checked = state.filters.majorSourcesOnly;
   els.sourceOptionList.innerHTML = [
     `<div class="source-filter-actions">
-      <strong>${selectedCount ? `${selectedCount}개 선택` : "전체 출처"}</strong>
+      <strong>${selectedCount ? `${selectedCount}개 선택` : state.filters.majorSourcesOnly ? `주요 출처 ${majorCount}개` : "전체 출처"}</strong>
       <button type="button" data-source-clear ${selectedCount ? "" : "disabled"}>전체 보기</button>
     </div>`,
     visibleSources.length
@@ -320,9 +377,11 @@ function renderSourceOptions() {
           .map((source) => {
             const count = sourceCounts.get(source) || 0;
             const checked = selectedSet.has(source) ? "checked" : "";
+            const tier = isMajorMediaSource(source) ? '<em class="source-tier">주요</em>' : "";
             return `<label class="source-option-row">
               <input type="checkbox" value="${escapeAttr(source)}" data-source-option ${checked} />
               <span>${escapeHtml(source)}</span>
+              ${tier}
               <small>${count}건</small>
             </label>`;
           })
@@ -472,7 +531,7 @@ function renderKeywordBars() {
   const counts = activeKeywords.map((keyword) => ({
     keyword: keyword.keyword,
     count: state.articles.filter((article) => article.matchedKeywords.includes(keyword.keyword)).length
-  }));
+  })).sort((a, b) => b.count - a.count || a.keyword.localeCompare(b.keyword, "ko"));
   const max = Math.max(...counts.map((item) => item.count), 1);
 
   els.keywordBars.innerHTML = counts
@@ -667,11 +726,13 @@ function renderSortHeader() {
 }
 
 function renderArticleRow(article) {
-  const selected = article.id === state.selectedId ? " selected" : "";
+  const selected = article.id === state.selectedId ? "selected" : "";
+  const attention = articleNeedsAttention(article) ? "needs-attention" : "";
   const duplicate = isDuplicateWithinSource(article);
   const statusChip = getStatusChip(article.reviewStatus);
   const duplicateChip = duplicate ? '<span class="chip warn">중복 의심</span>' : "";
   const representativeChip = article.representative ? '<span class="chip">대표</span>' : "";
+  const attentionChip = articleNeedsAttention(article) ? '<span class="chip attention">확인 필요</span>' : "";
   const relevanceChips = getRelevanceChips(article)
     .map((tag) => `<span class="chip neutral">${escapeHtml(tag)}</span>`)
     .join("");
@@ -717,13 +778,14 @@ function renderArticleRow(article) {
       : statusChip;
 
   return `
-    <tr class="${selected}">
+    <tr class="${[selected, attention].filter(Boolean).join(" ")}">
       <td>
         <div class="article-title">
           <button type="button" data-select="${escapeAttr(article.id)}">${escapeHtml(article.title)}</button>
           <div class="keyword-cell">
             ${article.matchedKeywords.map((keyword) => `<span class="chip neutral">${escapeHtml(keyword)}</span>`).join("")}
             ${relevanceChips}
+            ${attentionChip}
             ${duplicateChip}
             ${representativeChip}
           </div>
@@ -736,13 +798,13 @@ function renderArticleRow(article) {
       <td class="date-cell">
         <span>${formatDate(article.publishedAt)}</span>
       </td>
-      <td>
+      <td class="${articleNeedsProgramQualityAttention(article) ? "attention-cell" : ""}">
         <div class="program-quality-cell">
           ${programCell}
           <p class="basis-note">${escapeHtml(article.qualityBasis || "품질 확인 필요")}</p>
         </div>
       </td>
-      <td>${reviewCell}</td>
+      <td class="${articleNeedsReviewAttention(article) ? "attention-cell" : ""}">${reviewCell}</td>
     </tr>
   `;
 }
@@ -759,9 +821,10 @@ function renderDetail() {
 
   els.detailTitle.textContent = article.title;
   els.detailMeta.textContent = `${article.source} · ${getSourceTypeLabel(article.sourceType)} · ${formatDate(article.publishedAt)} · ${
-    article.relevanceBasis || "근거 미정"
+    normalizeAiBasisText(article.relevanceBasis || "근거 미정")
   }`;
-  els.detailSummary.textContent = `${article.summary} ${article.note ? `검토 메모: ${article.note}` : ""}`;
+  const note = getDistinctArticleNote(article);
+  els.detailSummary.textContent = note ? `${article.summary} 검토 메모: ${note}` : article.summary;
 
   if (state.role !== "admin") {
     els.detailActions.innerHTML = `<a class="button secondary" href="${escapeAttr(article.url)}" target="_blank" rel="noreferrer">원문 열기</a>`;
@@ -812,6 +875,7 @@ function getFilteredArticles() {
         ].join(" ")
       );
       if (search && !haystack.includes(search)) return false;
+      if (state.filters.majorSourcesOnly && !isMajorMediaSource(article.source)) return false;
       if (state.filters.sources.length && !state.filters.sources.includes(article.source)) return false;
       if (state.filters.program !== "all" && !articleMatchesProgramFilter(article, state.filters.program)) return false;
       if (state.filters.quality !== "all" && article.quality !== state.filters.quality) return false;
@@ -825,6 +889,8 @@ function getFilteredArticles() {
 }
 
 function compareArticlesByDate(a, b) {
+  const attentionDiff = Number(articleNeedsAttention(b)) - Number(articleNeedsAttention(a));
+  if (attentionDiff) return attentionDiff;
   const left = getArticleSortTime(a);
   const right = getArticleSortTime(b);
   const direction = state.sort.date === "asc" ? 1 : -1;
@@ -1224,7 +1290,7 @@ function buildSheetsPayload() {
       matched_keyword: article.matchedKeywords.join(", "),
       snippet: article.summary,
       ai_summary: "",
-      ai_basis: [article.relevanceBasis, article.note].filter(Boolean).join(" / "),
+      ai_basis: buildAiBasis(article),
       review_status: article.reviewStatus,
       include_in_press_count: isCountedArticle(article),
       representative: article.representative,
@@ -1309,7 +1375,7 @@ function applySheetsSnapshot(sheets) {
       summary: item.snippet || item.ai_summary || "Google Sheets에서 불러온 항목입니다.",
       matchedKeywords: splitList(item.matched_keyword),
       reviewStatus: item.review_status || "needs-review",
-      relevanceBasis: item.ai_basis || "검토 필요",
+      relevanceBasis: normalizeAiBasisText(item.ai_basis || "검토 필요"),
       representative: parseBoolean(item.representative),
       includeInCount: parseBoolean(item.include_in_press_count),
       duplicateGroup: "",
@@ -1318,7 +1384,7 @@ function applySheetsSnapshot(sheets) {
       programCategory: item.program_category || "기타",
       quality: item.quality || "미분류",
       qualityBasis: item.quality_basis || "",
-      note: item.ai_basis || ""
+      note: ""
     }));
   }
 
@@ -1429,6 +1495,72 @@ function getBasisNote(article) {
   if (article.relevanceBasis === "키워드 관련") return "키워드는 맞지만 활동 직접 언급은 사람이 확인";
   if (article.relevanceBasis === "직접 보도 후보") return "새로 추가되어 사람이 최종 확인";
   return "판정 근거를 확인해야 함";
+}
+
+function normalizeSourceRankKey(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/\s+/g, "")
+    .trim();
+}
+
+function isMajorMediaSource(source) {
+  return MAJOR_MEDIA_SOURCES.has(normalizeSourceRankKey(source));
+}
+
+function articleNeedsReviewAttention(article) {
+  return article && article.reviewStatus === "needs-review";
+}
+
+function articleNeedsProgramQualityAttention(article) {
+  if (!article) return false;
+  const quality = String(article.quality || "").trim();
+  const basis = String(article.qualityBasis || "").trim();
+  return !article.programName ||
+    !article.matchedProgram ||
+    !quality ||
+    quality === "미분류" ||
+    /관리자\s*확인|확인\s*필요|품질\s*확인|미분류/.test(basis);
+}
+
+function articleNeedsAttention(article) {
+  return articleNeedsReviewAttention(article) || articleNeedsProgramQualityAttention(article);
+}
+
+function getDistinctArticleNote(article) {
+  const note = String(article && article.note || "").trim();
+  if (!note) return "";
+  const basis = String(article && article.relevanceBasis || "").trim();
+  return normalize(note) === normalize(basis) ? "" : note;
+}
+
+function buildAiBasis(article) {
+  const seen = new Set();
+  return normalizeAiBasisText([article.relevanceBasis, getDistinctArticleNote(article)]
+    .map((part) => String(part || "").trim())
+    .filter(Boolean)
+    .filter((part) => {
+      const key = normalize(part);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .join(" / "));
+}
+
+function normalizeAiBasisText(value) {
+  const seen = new Set();
+  return String(value || "")
+    .split("/")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .filter((part) => {
+      const key = normalize(part);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .join(" / ");
 }
 
 function getRelevanceChips(article) {

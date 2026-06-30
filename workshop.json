@@ -7,7 +7,8 @@
   "project": {
     "name": "뉴스 대시보드",
     "slug": "news-dashboard",
-    "event": "Codex Impact Workshop"
+    "event": "Codex Impact Workshop",
+    "created_date": "2026-06-27"
   },
   "problem": {
     "actual_work_problem": "애드보커시 단체는 사업 성과지표로 언론보도 횟수를 정하는 경우가 많지만, 현재 단체 관련 키워드를 구글 알리미로 받아 업무 메신저 잔디에 흘려보내는 방식이라 보도 내역이 아카이빙되지 못하고 휘발된다. 평가 시기에는 실제 언론보도 횟수와 근거 기사를 측정하기 어렵다.",
@@ -18,7 +19,7 @@
     "source_status": "공개 언론 기사 기반",
     "sample_input": "활동명 '나무의 권리 재인식 플랫폼: 시티트리클럽'과 핵심 키워드 '서울환경연합, 서울환경운동연합, 가로수, 시티트리클럽, 나무의 권리'",
     "privacy_action": "단체 내부자료는 사용하지 않고 공개 언론 기사와 공개 키워드만 사용한다.",
-    "validity_check": "3시간 안에는 사용자가 수기로 찾은 Google Sheets 목록 중 2026년 1월 1일 이후 `분류=기사`인 공개 언론사 기사 7건을 최소 입력 묶음으로 사용한다. 서울환경연합 홈페이지, 서울시공익활동지원센터처럼 언론사가 아닌 출처와 삭제 링크는 제외한다. 내부 문서 원문, 비공개 평가 자료, 개인정보는 입력하지 않는다."
+    "validity_check": "3시간 MVP에서는 사용자가 수기로 확인한 2026년 1월 1일 이후 `분류=기사` 공개 언론사 기사 7건을 기준 데이터로 사용했다. 서울환경연합 홈페이지, 서울시공익활동지원센터 같은 비언론사 출처와 삭제 링크는 보도 횟수에서 제외했다. 구현 후 Google Sheets DB에 기사 7건, 검색어 7건, 사업 1건, 매칭 7건, 수집 실행 1건을 저장하고 다시 읽히는 것을 확인했다."
   },
   "output_choice": {
     "problem_archetype": "데이터 정리/분석/대시보드",
@@ -91,34 +92,34 @@
     "data_type": "반정형 + 비정형",
     "privacy_included": "개인정보 없음. 공개 기사와 공개 키워드만 사용",
     "privacy_level": "공개 자료",
-    "integration_level": "수동 입력 또는 공개 검색 결과 기반",
-    "mcp_cli_connection": "초기 MVP에서는 MCP/CLI 연결 없이 수동 입력 또는 로컬 화면으로 처리",
+    "integration_level": "SaaS + API",
+    "mcp_cli_connection": "CLI 사용",
     "human_review": "관련 기사 여부와 평가 문장 검토",
-    "reuse_level": "다른 캠페인/사업 키워드로 재사용 가능",
-    "output_format": "대시보드, 표, 리포트 문장"
+    "reuse_level": "템플릿 재사용 가능",
+    "output_format": "Vercel 웹 대시보드, Google Sheets DB, 평가용 요약 문장, JSON 내보내기"
   },
   "existing_workflow": {
     "workflow_trigger": "단체 관련 키워드가 구글 알리미로 수신되거나 사업 평가 시기가 다가올 때",
     "baseline_volume": "사업별 공개 기사 수는 시기와 키워드에 따라 변동",
-    "data_count": "데모에서는 시티트리클럽 관련 공개 기사 또는 검색 결과 묶음",
+    "data_count": "데모 기준 공개 언론사 기사 7건, 검색어 7건, 사업 1건",
     "repeat_frequency": "사업 운영 중 상시 알림 수신, 평가 시기마다 반복 집계",
-    "baseline_time": "평가 시기에 수동 검색과 기억에 의존해 여러 시간을 소요할 수 있음",
+    "baseline_time": "평가 시기에 수동 검색과 기억에 의존해 여러 시간을 소요할 수 있음. MVP 이후에는 기준 기사 묶음을 대시보드와 Google Sheets에서 즉시 재확인할 수 있음",
     "input_sources": "구글 알리미, 잔디 알림, 공개 뉴스 검색 결과",
     "current_steps": "알림 확인 -> 휘발성 메시지로 지나감 -> 평가 시점에 다시 검색 -> 근거 기사와 횟수 수동 정리",
     "current_outputs": "평가용 언론보도 근거 목록이 안정적으로 남지 않음",
     "current_pain_points": "언론보도 알림이 아카이빙되지 않아 사업 성과지표를 평가할 때 근거가 부족해진다."
   },
   "automation_target": {
-    "selected_task": "시티트리클럽 관련 공개 기사 목록 정리와 성과평가용 요약 생성",
+    "selected_task": "시티트리클럽 관련 공개 기사 목록 정리, 보도 횟수 산정, 대표 기사 선택, 평가용 요약 문장 생성, Google Sheets 저장",
     "reason_for_selection": "입력 키워드와 공개 기사라는 자료 단위가 분명하고, 보도 횟수/대표 기사/평가 문장이라는 검토 가능한 산출물이 있어 3시간 MVP로 적합하다.",
-    "excluded_tasks": "구글 알리미/잔디 자동 연동, 전체 사업 DB화, 최종 성과 판단 자동화"
+    "excluded_tasks": "구글 알리미/잔디 자동 수집, 기사 전문 크롤링, 최종 성과 판단 자동화, GitHub-Vercel 자동 연결"
   },
   "ai_agent_design": {
     "agent_input_contract": "활동명, 핵심 키워드, 공개 기사 URL 또는 공개 검색 결과 묶음",
-    "agent_output_contract": "기사 목록 테이블, 매칭 키워드, 관련성 표시, 보도 횟수, 대표 기사, 평가용 요약 문장",
+    "agent_output_contract": "Vercel 대시보드, 기사 목록 테이블, 관련성/검토 상태, 보도 횟수 지표, 대표 기사 표시, Google Sheets 저장 데이터, 평가용 요약 문장",
     "decision_boundary": "AI는 정리와 초안을 만들고, 담당자와 평가자가 관련성 및 과장 여부를 최종 판단한다.",
-    "tools_used": "Codex, 공개 웹 검색 또는 수동 입력 기사 목록, 로컬 대시보드",
-    "changed_workflow": "활동명/키워드 입력 -> 공개 기사 목록 정리 -> AI 관련성/요약 초안 -> 담당자 검토 -> 평가 근거로 활용"
+    "tools_used": "Codex, Vercel, Google Sheets, Google Apps Script, Playwright, 공개 기사 URL/수기 기사 목록",
+    "changed_workflow": "활동명/키워드와 공개 기사 목록 입력 -> 대시보드에서 관련성/대표 기사/중복 의심 확인 -> Google Sheets에 저장 -> 담당자 검토 -> 평가 근거와 요약 문장으로 활용"
   },
   "human_in_the_loop": {
     "review_points": "관련 기사 여부와 성과평가 문장 검토",
@@ -129,35 +130,35 @@
   },
   "data_and_access": {
     "privacy_action": "공개 언론 기사와 공개 키워드만 사용한다. 단체 내부자료와 개인정보는 사용하지 않는다.",
-    "permission_issues": "공개 검색 결과와 공개 기사 URL만 사용하므로 별도 권한 이슈는 낮다. 단, 기사 전문 복제는 피하고 제목/URL/요약 중심으로 다룬다.",
-    "shareability": "공개 기사 기반 결과는 공개 가능하되, 평가 의견이나 내부 판단 메모는 필요 시 내부 공유로 제한한다."
+    "permission_issues": "공개 기사 URL과 공개 키워드는 공개 가능하다. Google Sheets와 Apps Script 쓰기 작업은 관리자 인증값으로 보호하며 인증값은 저장소에 커밋하지 않는다. GitHub 자동 연결은 Vercel 계정의 GitHub Login Connection 추가가 필요해 CLI 배포로 대체했다.",
+    "shareability": "공개 가능. 단, Google Apps Script 관리자 인증값, 내부 평가 메모, 비공개 사업 문서는 공개 제외한다."
   },
   "impact_and_reuse": {
-    "expected_time_change": "평가 시기마다 수동 검색과 기억에 의존하던 언론보도 근거 정리를 키워드 입력 후 검토 가능한 목록과 문장 초안으로 단축한다.",
-    "quality_change": "보도 횟수, 대표 기사, 관련성 판단 근거가 남아 평가 설명의 일관성과 재현성이 높아진다.",
-    "case_reuse_recipe": "활동명과 키워드만 다른 사업으로 바꾸면 다른 캠페인 언론보도 아카이빙에도 재사용할 수 있다.",
+    "expected_time_change": "평가 시기마다 수동 검색과 기억에 의존하던 언론보도 근거 정리를, Vercel 대시보드와 Google Sheets 저장소에서 즉시 확인하고 검토하는 흐름으로 단축한다.",
+    "quality_change": "언론사 기사만 집계하고, 같은 언론사 내 중복 의심과 대표 기사 여부를 남기며, 평가 문장 초안의 근거를 기사 목록과 함께 확인할 수 있어 재현성과 검토 가능성이 높아진다.",
+    "case_reuse_recipe": "조직명, 사업명, 검색어, Google Sheets 탭 데이터만 바꾸면 다른 캠페인이나 사업의 언론보도 아카이빙에도 재사용할 수 있다.",
     "maintenance_owner": "사업 담당 활동가",
-    "next_iteration": "구글 알리미/잔디에서 링크 자동 수집, 월별 아카이브, 사업별 비교 대시보드"
+    "next_iteration": "구글 알리미/잔디 링크 자동 수집, 정기 수집 스케줄, 사업별 비교 화면, Google OAuth 기반 사용자 권한 관리"
   },
   "case_study": {
     "title": "뉴스 대시보드",
     "problem_summary": "언론보도 알림이 잔디 메시지로 흘러가며 아카이빙되지 않아, 사업 평가 시 언론 영향력과 사회적 영향력을 설명할 근거가 부족해지는 문제를 다룬다.",
     "before": "구글 알리미가 잔디로 들어오지만 담당자가 별도 저장하지 않으면 보도 내역이 휘발되고, 평가 시점에는 수동 검색과 기억에 의존한다.",
-    "ai_agent_workflow": "활동명과 키워드를 입력하면 공개 기사 목록을 정리하고, 관련성 표시와 보도 횟수, 대표 기사, 평가용 요약 문장을 만들어 사람이 검토한다.",
+    "ai_agent_workflow": "활동명/키워드와 공개 기사 목록 입력 -> 대시보드에서 관련성/대표 기사/중복 의심 확인 -> Google Sheets에 저장 -> 담당자 검토 -> 평가 근거와 요약 문장으로 활용",
     "human_review": "담당자와 평가자가 관련 기사 여부, 같은 언론사 안의 중복 집계, 비언론사 출처 포함 여부, 과장된 평가 문장을 확인한다.",
-    "tools": "Codex, 공개 웹 검색 또는 수동 입력 기사 목록, 로컬 대시보드",
-    "mvp_result": "시티트리클럽 관련 뉴스 아카이빙 대시보드와 성과평가용 요약 리포트 초안",
-    "success_criterion": "공개 기사 목록, 보도 횟수, 대표 기사, 관련성 표시, 평가용 요약 문장이 나오고 담당자가 관련성 및 과장 여부를 검토할 수 있다.",
-    "lessons": "3시간 MVP에서는 자동 연동보다 공개 기사 묶음을 검토 가능한 대시보드와 평가 문장으로 만드는 흐름에 집중하는 편이 완결성이 높다.",
-    "reuse_guide": "다른 사업의 활동명과 키워드로 교체하면 동일한 구조로 언론보도 아카이빙과 성과평가 근거 정리에 재사용할 수 있다.",
-    "redaction_notes": "공개 언론 기사와 공개 키워드만 사용하고, 내부 평가 메모나 비공개 자료는 공개 사례에 포함하지 않는다."
+    "tools": "Codex, Vercel, Google Sheets, Google Apps Script, Playwright, 공개 기사 URL/수기 기사 목록",
+    "mvp_result": "Vercel에 배포된 뉴스 대시보드(https://news-phi-cyan.vercel.app), Google Sheets DB, Apps Script 저장/불러오기 연결, 기사 7건 기준 검토 화면과 평가용 요약 문장",
+    "success_criterion": "배포 URL에서 기사 7건이 렌더링되고, 보도 횟수/대표 기사/검토 상태/중복 의심을 확인할 수 있으며, Google Sheets에 저장된 데이터를 다시 불러올 수 있으면 성공이다.",
+    "lessons": "3시간 MVP에서는 자동 크롤링보다 공개 기사 기준 데이터, 언론사 출처 필터, 같은 언론사 내 중복 판정, 사람 검토 흐름을 먼저 고정하는 것이 효과적이었다. 운영 확장에는 Postgres보다 Google Sheets가 초기 비용과 관리 부담을 줄이는 선택지가 될 수 있다.",
+    "reuse_guide": "조직명, 사업명, 검색어, Google Sheets 탭 데이터만 바꾸면 다른 캠페인이나 사업의 언론보도 아카이빙에도 재사용할 수 있다.",
+    "redaction_notes": "공개 기사와 공개 키워드만 사례에 포함한다. Apps Script 관리자 인증값, 내부 평가 메모, 비공개 사업계획서 원문, 접근권한 세부 정보는 공개하지 않는다."
   },
   "memory_entry": {
-    "did": "뉴스 대시보드의 문제정의와 3시간 MVP 범위를 확정하고 PLAN.md 및 workshop.json 초안을 생성했다.",
-    "why": "언론보도 알림이 휘발되어 사업 평가 시 근거가 부족해지는 문제를 공개 기사 기반 대시보드와 평가용 요약 리포트로 줄이기 위해서다.",
-    "how": "사회혁신가, 개발자, 프로젝트명, 업무 문제, 자료 상태, 결과물 형태, 키워드, 사람 검토 지점, 성공/실패 기준을 표준 필드로 정규화했다.",
-    "blocked": "공유된 Google 문서 본문은 직접 읽을 수 없어, 사용자가 제공한 대표 활동명과 핵심 키워드를 기준으로 MVP 범위를 정했다.",
-    "next": "구현자는 PLAN.md 기준으로 대시보드 MVP를 만들고, 구현 중 결정과 검증 결과를 MEMORY.md에 append-only로 남긴다."
+    "did": "뉴스 대시보드에 출처 다중 필터, 주요 언론사만 보기, 확인 필요 기사 우선 노출, 키워드 근거 정렬, 서울환경연합 브랜드 색상 적용을 추가했다.",
+    "why": "기사 수가 200건 이상으로 늘어나면서 활동가가 먼저 검토해야 할 기사와 이사회 보고에 쓸 주요 언론사 보도를 빠르게 찾을 필요가 생겼기 때문이다.",
+    "how": "프론트엔드 정렬/필터 로직과 CSS를 수정하고, Google Sheets에서 불러온 AI 판정 근거 중복을 화면에서 제거했다. MEMORY.md에는 2026-06-30 작업 기록을 append-only로 추가했다.",
+    "blocked": "브랜드 전용 제목 서체 파일은 저장소에 없어 시스템 한글 서체를 유지하고, 브랜드 가이드의 그린/퍼플/옐로우/그레이 색상 중심으로 적용했다.",
+    "next": "다음 단계는 주요 언론사 그룹을 관리자 화면에서 직접 수정할 수 있게 하고, 조직 내부 평가 기준에 맞춘 언론사 그룹을 계속 보정하는 것이다."
   },
   "generated_metadata": {
     "team_name": "뉴스 대시보드",
@@ -166,5 +167,40 @@
     "event": "Codex Impact Workshop",
     "version": "1",
     "case_id": "impact-agent-20260627-news-dashboard"
+  },
+  "implementation_result": {
+    "production_url": "https://news-phi-cyan.vercel.app",
+    "google_sheet_url": "https://docs.google.com/spreadsheets/d/1t3FZq0Wjzu6_Bb9Kg4ZIXwbCXV73G-S_DQIyRTQZNuU/edit",
+    "implemented_features": [
+      "관리자/보기 전용 모드",
+      "2026년 공개 언론사 기사 226건 기준 운영 데이터",
+      "보도 횟수 집계 기준 분리",
+      "같은 언론사 안의 중복 의심 표시",
+      "사업계획서 수동 업로드와 캠페인 검색어 생성",
+      "검색어 관리",
+      "기사 수동 추가",
+      "기사 수동 수집과 오전/저녁 자동 수집 트리거",
+      "출처 검색, 출처 다중 선택, 주요 언론사만 보기",
+      "검토/사업/품질 확인 필요 기사 우선 노출",
+      "키워드 근거 기사 수 많은 순 정렬",
+      "서울환경연합 브랜드 색상 적용",
+      "Google Sheets 탭 구조 JSON 내보내기",
+      "Google Sheets 저장/불러오기",
+      "Google Apps Script 연결 코드",
+      "Vercel 정적 배포"
+    ],
+    "verification": [
+      "Production URL 렌더링 확인",
+      "Google Sheets 기준 기사 226건 로드 확인",
+      "주요 언론사만 보기 적용 시 112건으로 필터링 확인",
+      "확인 필요 기사가 첫 화면 상단에 노출되고 강조 표시되는 것 확인",
+      "검토 메모와 AI 판정 근거 중복 표시 제거 확인",
+      "검증 스크립트 통과"
+    ],
+    "limits": [
+      "GitHub 자동 연결은 Vercel 계정 GitHub Login Connection 추가가 필요해 CLI 배포로 대체",
+      "관리자 인증값은 저장소에 커밋하지 않음",
+      "기사 전문 복제는 하지 않고 제목, URL, 요약, 검토 메타데이터 중심으로 처리"
+    ]
   }
 }
