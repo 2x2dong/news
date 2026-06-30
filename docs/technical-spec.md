@@ -9,7 +9,7 @@
 - 화면: Vercel 정적 배포
 - 저장소: Google Sheets
 - 쓰기 연결: Google Apps Script 웹앱
-- 정기 실행: Google Apps Script 시간 트리거, 오전 1회와 저녁 1회
+- 정기 실행: Google Apps Script 시간 트리거, 매일 09시대와 18시대에 기사 후보 자동 수집
 - 운영 권한: 관리자와 보기 전용 두 단계
 
 ## 사용자 권한

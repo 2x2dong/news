@@ -87,12 +87,52 @@ function doPost(event) {
     return jsonResponse_({ ok: true, action, program_id: body.program && body.program.program_id });
   }
 
+  if (action === "setupDailyTriggers") {
+    return jsonResponse_(createDailyTriggers());
+  }
+
+  if (action === "triggerStatus") {
+    return jsonResponse_(getDailyTriggerStatus_());
+  }
+
   return jsonResponse_({ ok: false, error: "unknown action" }, 400);
 }
 
 function createDailyTriggers() {
+  deleteDailyFetchTriggers_();
   ScriptApp.newTrigger("scheduledFetchMorning").timeBased().everyDays(1).atHour(9).create();
   ScriptApp.newTrigger("scheduledFetchEvening").timeBased().everyDays(1).atHour(18).create();
+  return getDailyTriggerStatus_();
+}
+
+function deleteDailyFetchTriggers_() {
+  const handlers = ["scheduledFetchMorning", "scheduledFetchEvening"];
+  ScriptApp.getProjectTriggers().forEach((trigger) => {
+    if (handlers.indexOf(trigger.getHandlerFunction()) !== -1) {
+      ScriptApp.deleteTrigger(trigger);
+    }
+  });
+}
+
+function getDailyTriggerStatus_() {
+  const triggers = ScriptApp.getProjectTriggers()
+    .filter((trigger) => ["scheduledFetchMorning", "scheduledFetchEvening"].indexOf(trigger.getHandlerFunction()) !== -1)
+    .map((trigger) => ({
+      handler: trigger.getHandlerFunction(),
+      uniqueId: trigger.getUniqueId(),
+      eventType: String(trigger.getEventType()),
+      triggerSource: String(trigger.getTriggerSource())
+    }));
+  return {
+    ok: true,
+    action: "triggerStatus",
+    timeZone: Session.getScriptTimeZone(),
+    expectedRuns: ["09:00", "18:00"],
+    triggerCount: triggers.length,
+    hasMorning: triggers.some((trigger) => trigger.handler === "scheduledFetchMorning"),
+    hasEvening: triggers.some((trigger) => trigger.handler === "scheduledFetchEvening"),
+    triggers
+  };
 }
 
 function setupSheets() {
@@ -137,31 +177,30 @@ function bootstrapAdminToken_(token) {
 }
 
 function scheduledFetchMorning() {
-  recordFetchRun_("morning");
+  return runScheduledFetch_("morning");
 }
 
 function scheduledFetchEvening() {
-  recordFetchRun_("evening");
+  return runScheduledFetch_("evening");
 }
 
-function recordFetchRun_(trigger) {
-  ensureSheets_();
-  upsertRows_(
-    "fetch_runs",
-    [
-      {
-        run_id: Utilities.getUuid(),
-        started_at: new Date().toISOString(),
-        finished_at: new Date().toISOString(),
-        trigger,
-        query_count: "",
-        item_count: "",
-        status: "scheduled",
-        notes: "수집 연결 지점"
-      }
-    ],
-    "run_id"
-  );
+function runScheduledFetch_(trigger) {
+  const year = String(new Date().getFullYear());
+  const activeKeywords = normalizeKeywordRows_(readRows_("keywords"))
+    .filter((row) => String(row.active).toLowerCase() !== "false")
+    .map((row) => row.keyword);
+  const searchTerms = unique_(["서울환경연합", "서울환경운동연합", ...activeKeywords]).slice(0, 32);
+  const collection = collectAndStoreNews_(searchTerms, year, trigger);
+  return {
+    ok: true,
+    action: "scheduledFetch",
+    trigger,
+    year,
+    queryCount: searchTerms.length,
+    itemsFound: collection.newsItems.length,
+    itemsAdded: collection.newItems.length,
+    itemsUpdated: collection.refreshItems.length
+  };
 }
 
 function readSnapshot_() {

@@ -68,7 +68,7 @@ npm run collect:citytreeclub
 | 화면 | Vercel 정적 사이트 |
 | 저장소 | Google Sheets |
 | 쓰기 연결 | Google Apps Script 웹앱 |
-| 정기 수집 | 오전 1회, 저녁 1회 |
+| 정기 수집 | Google Apps Script 시간 트리거, 매일 09시대와 18시대 |
 | 권한 | 관리자 비밀번호, 보기 전용 링크 |
 | 기본 조직명 | 서울환경연합, 서울환경운동연합 |
 | 자동 검색어 | 사업계획서의 고유 캠페인명 |
