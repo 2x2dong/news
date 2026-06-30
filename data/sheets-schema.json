@@ -11,11 +11,11 @@
     },
     "programs": {
       "description": "사업 단위",
-      "columns": ["program_id", "year", "name", "category", "goal", "change_goal", "indicators", "owners", "partners", "active"]
+      "columns": ["program_id", "year", "name", "category", "goal", "change_goal", "indicators", "owners", "partners", "active", "updated_at"]
     },
     "keywords": {
       "description": "검색어와 캠페인명",
-      "columns": ["keyword_id", "keyword", "type", "source", "active", "notes"]
+      "columns": ["keyword_id", "keyword", "type", "source", "active", "notes", "updated_at"]
     },
     "items": {
       "description": "언론사 기사",
@@ -39,7 +39,9 @@
         "program_name",
         "program_category",
         "quality",
-        "quality_basis"
+        "quality_basis",
+        "manual_fields",
+        "manual_updated_at"
       ]
     },
     "matches": {

@@ -8,6 +8,7 @@ const ADMIN_PASSWORD_STORAGE_KEY = "news-dashboard:admin-password:v6";
 const COLLECTION_START = "2026-01-01";
 const DEFAULT_YEAR = "2026";
 const ARTICLE_PAGE_SIZE = 25;
+const MANUAL_ARTICLE_FIELD_GROUPS = ["review", "representative", "program", "quality"];
 const MAJOR_MEDIA_SOURCES = new Set(
   [
     "연합뉴스",
@@ -914,10 +915,23 @@ function updateArticle(id, changes) {
     showToast("보기 전용에서는 수정할 수 없습니다.");
     return;
   }
-  state.articles = state.articles.map((article) => (article.id === id ? { ...article, ...changes } : article));
+  const manualFields = getManualArticleFieldsForChanges(changes);
+  const manualUpdatedAt = manualFields.length ? new Date().toISOString() : "";
+  let updatedArticle = null;
+  state.articles = state.articles.map((article) => {
+    if (article.id !== id) return article;
+    updatedArticle = {
+      ...article,
+      ...changes,
+      manualFields: mergeManualFields(article.manualFields, manualFields),
+      manualUpdatedAt: manualUpdatedAt || article.manualUpdatedAt || ""
+    };
+    return updatedArticle;
+  });
   saveArticles();
   render();
   showToast("검토 상태를 반영했습니다.");
+  persistArticle(updatedArticle);
 }
 
 function addArticle(event) {
@@ -946,7 +960,9 @@ function addArticle(event) {
     programCategory: program.category,
     quality: quality.quality,
     qualityBasis: quality.basis,
-    note: "새로 추가된 항목이라 사람이 관련성을 확인해야 합니다."
+    note: "새로 추가된 항목이라 사람이 관련성을 확인해야 합니다.",
+    manualFields: [],
+    manualUpdatedAt: ""
   };
   state.articles = [article, ...state.articles];
   state.selectedId = article.id;
@@ -955,6 +971,7 @@ function addArticle(event) {
   els.articleForm.reset();
   render();
   showToast("검토 목록에 추가했습니다.");
+  persistArticle(article);
 }
 
 async function importPlan(event) {
@@ -1014,7 +1031,7 @@ async function importPlan(event) {
   showToast("관리자 로그인 후 다시 시도해주세요.");
 }
 
-function addKeyword(event) {
+async function addKeyword(event) {
   event.preventDefault();
   if (state.role !== "admin") return;
 
@@ -1028,21 +1045,21 @@ function addKeyword(event) {
     return;
   }
 
-  state.keywords = [
-    {
-      id: makeId("kw"),
-      keyword,
-      type,
-      source: "관리자 입력",
-      active: true,
-      notes
-    },
-    ...state.keywords
-  ];
+  const newKeyword = {
+    id: makeId("kw"),
+    keyword,
+    type,
+    source: "관리자 입력",
+    active: true,
+    notes,
+    updatedAt: new Date().toISOString()
+  };
+  state.keywords = [newKeyword, ...state.keywords];
   saveKeywords();
   els.keywordForm.reset();
   render();
   showToast("검색어를 추가했습니다.");
+  await persistKeyword(newKeyword);
 }
 
 async function addProgram(event) {
@@ -1069,7 +1086,8 @@ async function addProgram(event) {
     indicators: "",
     owners: "",
     partners: "관리자 입력",
-    active: true
+    active: true,
+    updatedAt: new Date().toISOString()
   };
 
   state.programs = [program, ...state.programs];
@@ -1081,14 +1099,16 @@ async function addProgram(event) {
   await persistProgram(program);
 }
 
-function toggleKeyword(id) {
+async function toggleKeyword(id) {
   if (state.role !== "admin") return;
+  let updatedKeyword = null;
   state.keywords = state.keywords.map((keyword) =>
-    keyword.id === id ? { ...keyword, active: !keyword.active } : keyword
+    keyword.id === id ? (updatedKeyword = { ...keyword, active: !keyword.active, updatedAt: new Date().toISOString() }) : keyword
   );
   saveKeywords();
   render();
   showToast("검색어 상태를 바꿨습니다.");
+  await persistKeyword(updatedKeyword);
 }
 
 async function toggleProgram(id) {
@@ -1097,8 +1117,9 @@ async function toggleProgram(id) {
   if (!program) return;
   const nextActive = program.active === false;
 
+  let updatedProgram = null;
   state.programs = state.programs.map((item) =>
-    item.id === id ? { ...item, active: nextActive } : item
+    item.id === id ? (updatedProgram = { ...item, active: nextActive, updatedAt: new Date().toISOString() }) : item
   );
   if (state.filters.program === getProgramNameFilterValue(program.name) && !nextActive) {
     state.filters.program = "all";
@@ -1106,7 +1127,7 @@ async function toggleProgram(id) {
   savePrograms();
   render();
   showToast("사업 상태를 바꿨습니다.");
-  await persistProgram(findProgram(id));
+  await persistProgram(updatedProgram || findProgram(id));
 }
 
 async function adminLogin(event) {
@@ -1311,36 +1332,8 @@ function buildSheetsPayload() {
       raw_text_length: plan.rawTextLength
     })),
     programs: state.programs.map(toProgramSheetRow),
-    keywords: state.keywords.filter(isAllowedKeyword).map((keyword) => ({
-      keyword_id: keyword.id,
-      keyword: keyword.keyword,
-      type: keyword.type,
-      source: keyword.source,
-      active: keyword.active,
-      notes: keyword.notes || ""
-    })),
-    items: state.articles.filter((article) => article.sourceType === "media").map((article) => ({
-      item_id: article.id,
-      title: article.title,
-      url: article.url,
-      canonical_url: canonicalize(article.url),
-      source_name: article.source,
-      source_type: "media",
-      published_at: article.publishedAt,
-      discovered_at: exportedAt,
-      matched_keyword: article.matchedKeywords.join(", "),
-      snippet: article.summary,
-      ai_summary: "",
-      ai_basis: buildAiBasis(article),
-      review_status: article.reviewStatus,
-      include_in_press_count: isCountedArticle(article),
-      representative: article.representative,
-      program_id: article.matchedProgram || "",
-      program_name: article.programName || "",
-      program_category: article.programCategory || "",
-      quality: article.quality || "미분류",
-      quality_basis: article.qualityBasis || ""
-    })),
+    keywords: state.keywords.filter(isAllowedKeyword).map(toKeywordSheetRow),
+    items: state.articles.filter((article) => article.sourceType === "media").map((article) => toItemSheetRow(article, exportedAt)),
     matches: state.articles.map((article) => ({
       match_id: `match-${article.id}`,
       item_id: article.id,
@@ -1366,7 +1359,7 @@ function buildSheetsPayload() {
   };
 }
 
-async function persistProgram(program) {
+async function persistProgram(program, options = {}) {
   if (!program || !APP_CONFIG.appsScriptEndpoint || !getAdminPassword()) return;
 
   try {
@@ -1378,7 +1371,39 @@ async function persistProgram(program) {
     const result = await response.json();
     if (!response.ok || !result.ok) throw new Error(result.error || "program sync failed");
   } catch (error) {
-    showToast("사업 상태는 화면에 반영됐고, 구글시트 저장을 누르면 저장됩니다.");
+    if (!options.silent) showToast("사업 상태는 화면에 반영됐고, 구글시트 저장을 누르면 저장됩니다.");
+  }
+}
+
+async function persistKeyword(keyword, options = {}) {
+  if (!keyword || !APP_CONFIG.appsScriptEndpoint || !getAdminPassword()) return;
+
+  try {
+    const response = await fetch(APP_CONFIG.appsScriptEndpoint, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ action: "upsertKeyword", password: getAdminPassword(), keyword: toKeywordSheetRow(keyword) })
+    });
+    const result = await response.json();
+    if (!response.ok || !result.ok) throw new Error(result.error || "keyword sync failed");
+  } catch (error) {
+    if (!options.silent) showToast("검색어 상태는 화면에 반영됐고, 구글시트 저장을 누르면 저장됩니다.");
+  }
+}
+
+async function persistArticle(article, options = {}) {
+  if (!article || !APP_CONFIG.appsScriptEndpoint || !getAdminPassword()) return;
+
+  try {
+    const response = await fetch(APP_CONFIG.appsScriptEndpoint, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ action: "reviewItem", password: getAdminPassword(), item: toItemSheetRow(article) })
+    });
+    const result = await response.json();
+    if (!response.ok || !result.ok) throw new Error(result.error || "article sync failed");
+  } catch (error) {
+    if (!options.silent) showToast("검토값은 화면에 반영됐고, 구글시트 저장을 누르면 저장됩니다.");
   }
 }
 
@@ -1393,7 +1418,47 @@ function toProgramSheetRow(program) {
     indicators: program.indicators || "",
     owners: program.owners || "",
     partners: program.partners || "",
-    active: program.active !== false
+    active: program.active !== false,
+    updated_at: program.updatedAt || ""
+  };
+}
+
+function toKeywordSheetRow(keyword) {
+  return {
+    keyword_id: keyword.id,
+    keyword: keyword.keyword,
+    type: keyword.type,
+    source: keyword.source,
+    active: keyword.active !== false,
+    notes: keyword.notes || "",
+    updated_at: keyword.updatedAt || ""
+  };
+}
+
+function toItemSheetRow(article, discoveredAt = new Date().toISOString()) {
+  return {
+    item_id: article.id,
+    title: article.title,
+    url: article.url,
+    canonical_url: canonicalize(article.url),
+    source_name: article.source,
+    source_type: "media",
+    published_at: article.publishedAt,
+    discovered_at: discoveredAt,
+    matched_keyword: (article.matchedKeywords || []).join(", "),
+    snippet: article.summary,
+    ai_summary: "",
+    ai_basis: buildAiBasis(article),
+    review_status: article.reviewStatus,
+    include_in_press_count: isCountedArticle(article),
+    representative: article.representative,
+    program_id: article.matchedProgram || "",
+    program_name: article.programName || "",
+    program_category: article.programCategory || "",
+    quality: article.quality || "미분류",
+    quality_basis: article.qualityBasis || "",
+    manual_fields: serializeManualFields(article.manualFields),
+    manual_updated_at: article.manualUpdatedAt || ""
   };
 }
 
@@ -1404,43 +1469,26 @@ function applySheetsSnapshot(sheets) {
   const keywords = Array.isArray(sheets.keywords) ? sheets.keywords : [];
   const plans = Array.isArray(sheets.plans) ? sheets.plans : [];
   const programs = Array.isArray(sheets.programs) ? sheets.programs : [];
+  const preservedLocal = {
+    articles: [],
+    keywords: [],
+    programs: []
+  };
 
   if (items.length) {
-    state.articles = items.map((item) => ({
-      id: item.item_id,
-      title: item.title,
-      source: item.source_name || "출처 미정",
-      sourceType: item.source_type || "media",
-      publishedAt: normalizeDateValue(item.published_at),
-      url: item.url,
-      summary: item.snippet || item.ai_summary || "Google Sheets에서 불러온 항목입니다.",
-      matchedKeywords: splitList(item.matched_keyword),
-      reviewStatus: item.review_status || "needs-review",
-      relevanceBasis: normalizeAiBasisText(item.ai_basis || "검토 필요"),
-      representative: parseBoolean(item.representative),
-      includeInCount: parseBoolean(item.include_in_press_count),
-      duplicateGroup: "",
-      matchedProgram: item.program_id || "",
-      programName: item.program_name || "",
-      programCategory: item.program_category || "기타",
-      quality: item.quality || "미분류",
-      qualityBasis: item.quality_basis || "",
-      note: ""
-    }));
+    const mergedArticles = mergeSheetArticles(items.map(fromItemSheetRow));
+    state.articles = mergedArticles.items;
+    preservedLocal.articles = mergedArticles.preserved;
   }
 
   if (keywords.length) {
-    state.keywords = keywords
+    const sheetKeywords = keywords
       .filter((keyword) => keyword.keyword)
-      .map((keyword) => ({
-        id: keyword.keyword_id || makeId("kw"),
-        keyword: keyword.keyword,
-        type: normalizeKeywordType(keyword.type, keyword.keyword),
-        source: keyword.source || "Google Sheets",
-        active: parseBoolean(keyword.active),
-        notes: keyword.notes || ""
-      }))
+      .map(fromKeywordSheetRow)
       .filter(isAllowedKeyword);
+    const mergedKeywords = mergeSheetKeywords(sheetKeywords);
+    state.keywords = mergedKeywords.items;
+    preservedLocal.keywords = mergedKeywords.preserved;
   }
 
   if (plans.length) {
@@ -1456,21 +1504,12 @@ function applySheetsSnapshot(sheets) {
   }
 
   if (programs.length) {
-    const sanitizedPrograms = programs
+    const sheetPrograms = programs
       .filter((program) => program.name && !isExcludedProgram(program))
-      .map((program) => ({
-        id: program.program_id || makeId("program"),
-        year: program.year || DEFAULT_YEAR,
-        name: program.name,
-        category: program.category || "기타",
-        goal: program.goal || "",
-        changeGoal: program.change_goal || "",
-        indicators: program.indicators || "",
-        owners: program.owners || "",
-        partners: program.partners || "",
-        active: program.active === "" ? true : parseBoolean(program.active)
-      }));
-    state.programs = sanitizedPrograms.length ? sanitizedPrograms : cloneDefaultPrograms();
+      .map(fromProgramSheetRow);
+    const mergedPrograms = mergeSheetPrograms(sheetPrograms);
+    state.programs = mergedPrograms.items.length ? mergedPrograms.items : cloneDefaultPrograms();
+    preservedLocal.programs = mergedPrograms.preserved;
   }
 
   saveArticles();
@@ -1478,6 +1517,153 @@ function applySheetsSnapshot(sheets) {
   savePlans();
   savePrograms();
   render();
+  persistPreservedLocalState(preservedLocal);
+}
+
+function fromItemSheetRow(item) {
+  return {
+    id: item.item_id,
+    title: item.title,
+    source: item.source_name || "출처 미정",
+    sourceType: item.source_type || "media",
+    publishedAt: normalizeDateValue(item.published_at),
+    url: item.url,
+    summary: item.snippet || item.ai_summary || "Google Sheets에서 불러온 항목입니다.",
+    matchedKeywords: splitList(item.matched_keyword),
+    reviewStatus: item.review_status || "needs-review",
+    relevanceBasis: normalizeAiBasisText(item.ai_basis || "검토 필요"),
+    representative: parseBoolean(item.representative),
+    includeInCount: parseBoolean(item.include_in_press_count),
+    duplicateGroup: "",
+    matchedProgram: item.program_id || "",
+    programName: item.program_name || "",
+    programCategory: item.program_category || "기타",
+    quality: item.quality || "미분류",
+    qualityBasis: item.quality_basis || "",
+    note: "",
+    manualFields: parseManualFields(item.manual_fields),
+    manualUpdatedAt: item.manual_updated_at || ""
+  };
+}
+
+function fromKeywordSheetRow(keyword) {
+  return {
+    id: keyword.keyword_id || makeId("kw"),
+    keyword: keyword.keyword,
+    type: normalizeKeywordType(keyword.type, keyword.keyword),
+    source: keyword.source || "Google Sheets",
+    active: keyword.active === "" ? true : parseBoolean(keyword.active),
+    notes: keyword.notes || "",
+    updatedAt: keyword.updated_at || ""
+  };
+}
+
+function fromProgramSheetRow(program) {
+  return {
+    id: program.program_id || makeId("program"),
+    year: program.year || DEFAULT_YEAR,
+    name: program.name,
+    category: program.category || "기타",
+    goal: program.goal || "",
+    changeGoal: program.change_goal || "",
+    indicators: program.indicators || "",
+    owners: program.owners || "",
+    partners: program.partners || "",
+    active: program.active === "" ? true : parseBoolean(program.active),
+    updatedAt: program.updated_at || ""
+  };
+}
+
+function mergeSheetArticles(sheetArticles) {
+  const localById = new Map(state.articles.map((article) => [article.id, article]));
+  const localByUrl = new Map(
+    state.articles
+      .map((article) => [canonicalize(article.url), article])
+      .filter(([url]) => url)
+  );
+  const preserved = [];
+  const items = sheetArticles.map((sheetArticle) => {
+    const localArticle = localById.get(sheetArticle.id) || localByUrl.get(canonicalize(sheetArticle.url));
+    if (!localArticle) return sheetArticle;
+
+    const fields = getManualArticleFieldsToPreserve(localArticle, sheetArticle);
+    if (!fields.length) return sheetArticle;
+
+    const merged = copyManualArticleFields(sheetArticle, localArticle, fields);
+    merged.manualFields = mergeManualFields(sheetArticle.manualFields, localArticle.manualFields, fields);
+    merged.manualUpdatedAt = latestTimestamp(localArticle.manualUpdatedAt, sheetArticle.manualUpdatedAt) ||
+      localArticle.manualUpdatedAt ||
+      new Date().toISOString();
+    preserved.push(merged);
+    return merged;
+  });
+
+  const sheetIds = new Set(items.map((article) => article.id));
+  const sheetUrls = new Set(items.map((article) => canonicalize(article.url)).filter(Boolean));
+  state.articles.forEach((localArticle) => {
+    const localUrl = canonicalize(localArticle.url);
+    if (sheetIds.has(localArticle.id) || (localUrl && sheetUrls.has(localUrl))) return;
+    if (!hasManualArticleState(localArticle)) return;
+    items.unshift(localArticle);
+    preserved.push(localArticle);
+  });
+
+  return { items, preserved };
+}
+
+function mergeSheetKeywords(sheetKeywords) {
+  const localByKeyword = new Map(state.keywords.map((keyword) => [normalize(keyword.keyword), keyword]));
+  const used = new Set();
+  const preserved = [];
+  const items = sheetKeywords.map((sheetKeyword) => {
+    const key = normalize(sheetKeyword.keyword);
+    const localKeyword = localByKeyword.get(key);
+    used.add(key);
+    if (!localKeyword || !shouldPreserveLocalKeyword(localKeyword, sheetKeyword)) return sheetKeyword;
+    const merged = { ...sheetKeyword, active: localKeyword.active !== false, notes: localKeyword.notes || sheetKeyword.notes, updatedAt: localKeyword.updatedAt || sheetKeyword.updatedAt };
+    preserved.push(merged);
+    return merged;
+  });
+
+  state.keywords.forEach((localKeyword) => {
+    const key = normalize(localKeyword.keyword);
+    if (used.has(key) || !isAllowedKeyword(localKeyword)) return;
+    items.unshift(localKeyword);
+    preserved.push(localKeyword);
+  });
+
+  return { items, preserved };
+}
+
+function mergeSheetPrograms(sheetPrograms) {
+  const localByName = new Map(state.programs.map((program) => [normalize(program.name), program]));
+  const used = new Set();
+  const preserved = [];
+  const items = sheetPrograms.map((sheetProgram) => {
+    const key = normalize(sheetProgram.name);
+    const localProgram = localByName.get(key);
+    used.add(key);
+    if (!localProgram || !shouldPreserveLocalProgram(localProgram, sheetProgram)) return sheetProgram;
+    const merged = { ...sheetProgram, active: localProgram.active !== false, updatedAt: localProgram.updatedAt || sheetProgram.updatedAt };
+    preserved.push(merged);
+    return merged;
+  });
+
+  state.programs.forEach((localProgram) => {
+    const key = normalize(localProgram.name);
+    if (used.has(key) || isExcludedProgram(localProgram)) return;
+    items.unshift(localProgram);
+    preserved.push(localProgram);
+  });
+
+  return { items, preserved };
+}
+
+function persistPreservedLocalState(preservedLocal) {
+  if (!APP_CONFIG.appsScriptEndpoint || !getAdminPassword()) return;
+  preservedLocal.articles.slice(0, 80).forEach((article) => persistArticle(article, { silent: true }));
+  preservedLocal.keywords.slice(0, 80).forEach((keyword) => persistKeyword(keyword, { silent: true }));
+  preservedLocal.programs.slice(0, 80).forEach((program) => persistProgram(program, { silent: true }));
 }
 
 function getAdminPassword() {
@@ -1494,6 +1680,129 @@ function splitList(value) {
 function parseBoolean(value) {
   if (typeof value === "boolean") return value;
   return ["true", "TRUE", "1", "yes", "Y", "활성"].includes(String(value).trim());
+}
+
+function getManualArticleFieldsForChanges(changes) {
+  const fields = [];
+  if ("reviewStatus" in changes || "includeInCount" in changes) fields.push("review");
+  if ("representative" in changes) fields.push("representative");
+  if ("matchedProgram" in changes || "programName" in changes || "programCategory" in changes) fields.push("program");
+  if ("quality" in changes || "qualityBasis" in changes) fields.push("quality");
+  return fields;
+}
+
+function parseManualFields(value) {
+  if (Array.isArray(value)) return value.filter((field) => MANUAL_ARTICLE_FIELD_GROUPS.includes(field));
+  return String(value || "")
+    .split(",")
+    .map((field) => field.trim())
+    .filter((field) => MANUAL_ARTICLE_FIELD_GROUPS.includes(field));
+}
+
+function serializeManualFields(value) {
+  return parseManualFields(value).join(", ");
+}
+
+function mergeManualFields(...fieldGroups) {
+  const seen = new Set();
+  fieldGroups.flat().forEach((field) => {
+    parseManualFields([field]).forEach((parsed) => seen.add(parsed));
+  });
+  return MANUAL_ARTICLE_FIELD_GROUPS.filter((field) => seen.has(field));
+}
+
+function hasManualArticleState(article) {
+  return parseManualFields(article && article.manualFields).length > 0 ||
+    /관리자\s*최종\s*선택/.test(String(article && article.qualityBasis || "")) ||
+    Boolean(article && article.manualUpdatedAt);
+}
+
+function getManualArticleFieldsToPreserve(localArticle, sheetArticle) {
+  const localManualFields = parseManualFields(localArticle.manualFields);
+  const sheetManualFields = parseManualFields(sheetArticle.manualFields);
+  const fields = [];
+
+  MANUAL_ARTICLE_FIELD_GROUPS.forEach((field) => {
+    const localHasManualField = localManualFields.includes(field);
+    const sheetHasManualField = sheetManualFields.includes(field);
+    const localIsNewer = shouldPreserveLocalTimestamp(localArticle.manualUpdatedAt, sheetArticle.manualUpdatedAt);
+    const legacyLocalDiffers = !sheetHasManualField && articleManualFieldDiffers(field, localArticle, sheetArticle);
+
+    if ((localHasManualField && (!sheetHasManualField || localIsNewer)) || legacyLocalDiffers) {
+      fields.push(field);
+    }
+  });
+
+  return fields;
+}
+
+function articleManualFieldDiffers(field, localArticle, sheetArticle) {
+  if (field === "review") return localArticle.reviewStatus !== sheetArticle.reviewStatus;
+  if (field === "representative") return Boolean(localArticle.representative) !== Boolean(sheetArticle.representative);
+  if (field === "program") {
+    return normalize(localArticle.matchedProgram || localArticle.programName) !== normalize(sheetArticle.matchedProgram || sheetArticle.programName);
+  }
+  if (field === "quality") {
+    return localArticle.quality !== sheetArticle.quality ||
+      /관리자\s*최종\s*선택/.test(String(localArticle.qualityBasis || ""));
+  }
+  return false;
+}
+
+function copyManualArticleFields(target, source, fields) {
+  const merged = { ...target };
+  if (fields.includes("review")) {
+    merged.reviewStatus = source.reviewStatus;
+    merged.includeInCount = source.includeInCount;
+  }
+  if (fields.includes("representative")) {
+    merged.representative = source.representative;
+  }
+  if (fields.includes("program")) {
+    merged.matchedProgram = source.matchedProgram;
+    merged.programName = source.programName;
+    merged.programCategory = source.programCategory;
+  }
+  if (fields.includes("quality")) {
+    merged.quality = source.quality;
+    merged.qualityBasis = source.qualityBasis;
+  }
+  return merged;
+}
+
+function shouldPreserveLocalKeyword(localKeyword, sheetKeyword) {
+  if (localKeyword.updatedAt || sheetKeyword.updatedAt) {
+    return shouldPreserveLocalTimestamp(localKeyword.updatedAt, sheetKeyword.updatedAt);
+  }
+  return localKeyword.active === false && sheetKeyword.active !== false;
+}
+
+function shouldPreserveLocalProgram(localProgram, sheetProgram) {
+  if (localProgram.updatedAt || sheetProgram.updatedAt) {
+    return shouldPreserveLocalTimestamp(localProgram.updatedAt, sheetProgram.updatedAt);
+  }
+  return localProgram.active === false && sheetProgram.active !== false;
+}
+
+function shouldPreserveLocalTimestamp(localTimestamp, sheetTimestamp) {
+  const localTime = parseTimestamp(localTimestamp);
+  const sheetTime = parseTimestamp(sheetTimestamp);
+  if (localTime && sheetTime) return localTime >= sheetTime;
+  if (localTime && !sheetTime) return true;
+  return !localTime && !sheetTime;
+}
+
+function latestTimestamp(left, right) {
+  const leftTime = parseTimestamp(left);
+  const rightTime = parseTimestamp(right);
+  if (!leftTime && !rightTime) return "";
+  return leftTime >= rightTime ? left : right;
+}
+
+function parseTimestamp(value) {
+  if (!value) return 0;
+  const time = new Date(value).getTime();
+  return Number.isNaN(time) ? 0 : time;
 }
 
 function normalizeDateValue(value) {

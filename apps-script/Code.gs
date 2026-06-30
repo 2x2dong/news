@@ -1,8 +1,8 @@
 const SHEET_SCHEMA = {
   users: ["email", "role", "name", "active"],
   plans: ["year", "title", "source_url", "imported_at", "raw_text_file", "raw_text_length"],
-  programs: ["program_id", "year", "name", "category", "goal", "change_goal", "indicators", "owners", "partners", "active"],
-  keywords: ["keyword_id", "keyword", "type", "source", "active", "notes"],
+  programs: ["program_id", "year", "name", "category", "goal", "change_goal", "indicators", "owners", "partners", "active", "updated_at"],
+  keywords: ["keyword_id", "keyword", "type", "source", "active", "notes", "updated_at"],
   items: [
     "item_id",
     "title",
@@ -23,7 +23,9 @@ const SHEET_SCHEMA = {
     "program_name",
     "program_category",
     "quality",
-    "quality_basis"
+    "quality_basis",
+    "manual_fields",
+    "manual_updated_at"
   ],
   matches: ["match_id", "item_id", "program_id", "match_type", "confidence", "basis", "reviewed_by", "reviewed_at"],
   fetch_runs: ["run_id", "started_at", "finished_at", "trigger", "query_count", "item_count", "status", "notes"]
@@ -443,7 +445,7 @@ function collectAndStoreNews_(searchTerms, year, trigger) {
       const existingId = existingById[item.item_id] ? item.item_id : existingByDedupeKey[dedupeKey];
       const existing = existingId ? existingById[existingId] : null;
       if (!existing || !shouldRefreshAutoItem_(existing)) return null;
-      return Object.assign({}, existing, item, { item_id: existing.item_id });
+      return mergeCollectedItem_(existing, Object.assign({}, item, { item_id: existing.item_id }));
     })
     .filter(Boolean);
   const refreshedIds = {};
@@ -490,6 +492,50 @@ function shouldRefreshAutoItem_(row) {
     basis.indexOf("AI 자동판정") !== -1;
 }
 
+function mergeCollectedItem_(existing, collected) {
+  const manualFields = getManualItemFields_(existing);
+  const next = Object.assign({}, existing, collected);
+
+  if (manualFields.review) {
+    next.review_status = existing.review_status;
+    next.include_in_press_count = existing.include_in_press_count;
+  }
+  if (manualFields.representative) {
+    next.representative = existing.representative;
+  }
+  if (manualFields.program) {
+    next.program_id = existing.program_id;
+    next.program_name = existing.program_name;
+    next.program_category = existing.program_category;
+  }
+  if (manualFields.quality) {
+    next.quality = existing.quality;
+    next.quality_basis = existing.quality_basis;
+  }
+
+  next.manual_fields = existing.manual_fields || collected.manual_fields || "";
+  next.manual_updated_at = existing.manual_updated_at || collected.manual_updated_at || "";
+  return next;
+}
+
+function getManualItemFields_(row) {
+  const fieldText = String((row && row.manual_fields) || "");
+  const fields = {};
+  fieldText.split(",").map((field) => field.trim()).forEach((field) => {
+    if (field) fields[field] = true;
+  });
+
+  if (/관리자\s*최종\s*선택/.test(String((row && row.quality_basis) || ""))) fields.quality = true;
+  if (row && row.manual_updated_at && !fieldText) {
+    fields.review = true;
+    fields.representative = true;
+    fields.program = true;
+    fields.quality = true;
+  }
+
+  return fields;
+}
+
 function reclassifyExistingAutoItems_(existingItems, programs, refreshedIds) {
   return existingItems
     .map((row) => {
@@ -505,7 +551,7 @@ function reclassifyExistingAutoItems_(existingItems, programs, refreshedIds) {
       const term = row.matched_keyword || "";
       const programMatch = matchProgram_(enrichedItem, term, programs);
       const quality = inferArticleQuality_(enrichedItem);
-      const next = Object.assign({}, row, {
+      const proposed = {
         source_name: enrichedItem.source || row.source_name,
         published_at: enrichedItem.published_at || row.published_at,
         program_id: programMatch.program_id,
@@ -513,7 +559,8 @@ function reclassifyExistingAutoItems_(existingItems, programs, refreshedIds) {
         program_category: programMatch.category,
         quality: quality.quality,
         quality_basis: quality.basis
-      });
+      };
+      const next = mergeCollectedItem_(row, Object.assign({}, row, proposed));
       const changed = next.source_name !== row.source_name ||
         next.published_at !== row.published_at ||
         next.program_id !== row.program_id ||

@@ -216,6 +216,7 @@ Google Sheets는 여러 탭으로 나눕니다.
 | owners | 내부 담당 |
 | partners | 연대/협력 |
 | active | 사용 여부 |
+| updated_at | 관리자 수정 시각 |
 
 ### `keywords`
 
@@ -227,6 +228,7 @@ Google Sheets는 여러 탭으로 나눕니다.
 | source | 사업계획서 추출 또는 관리자 입력 |
 | active | 사용 여부 |
 | notes | 잡음/주의사항 |
+| updated_at | 관리자 수정 시각 |
 
 ### `items`
 
@@ -249,6 +251,8 @@ Google Sheets는 여러 탭으로 나눕니다.
 | representative | 대표 기사 여부 |
 | quality | 기사 품질 |
 | quality_basis | 품질 자동분류 근거 |
+| manual_fields | 관리자가 확정한 필드 |
+| manual_updated_at | 관리자 확인값 수정 시각 |
 
 ### `matches`
 
