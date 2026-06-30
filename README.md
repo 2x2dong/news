@@ -11,7 +11,7 @@ Vercel에 화면을 올리고, Google Sheets를 DB처럼 쓰는 저비용 운영
 
 ## 배포 URL
 
-- [https://news-phi-cyan.vercel.app](https://news-phi-cyan.vercel.app)
+- [https://seoulkfem-news.vercel.app](https://seoulkfem-news.vercel.app)
 
 ## Google Sheets DB
 
@@ -31,6 +31,7 @@ Vercel에 화면을 올리고, Google Sheets를 DB처럼 쓰는 저비용 운영
 - 캠페인명 검색어 자동 생성
 - 검색어 추가, 활성화, 비활성화
 - 기사 후보 수동 수집
+- 사업 목록 수동 추가
 - 지정 검색어 단독 검색 후 사업 매칭
 - 네이버뉴스 정확도순 정확 일치 검색 우선 수집
 - Google News RSS, 네이버뉴스 직접 검색, 네이버/다음 뉴스 제한 검색 보강

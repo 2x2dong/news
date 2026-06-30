@@ -203,6 +203,10 @@ function bindElements() {
     "planUrl",
     "planFile",
     "planImportResult",
+    "programForm",
+    "newProgramName",
+    "newProgramCategory",
+    "newProgramGoal",
     "keywordForm",
     "newKeyword",
     "newKeywordType",
@@ -282,6 +286,7 @@ function bindEvents() {
   els.syncSheetsButton.addEventListener("click", syncSheets);
   els.articleForm.addEventListener("submit", addArticle);
   els.planForm.addEventListener("submit", importPlan);
+  els.programForm.addEventListener("submit", addProgram);
   els.keywordForm.addEventListener("submit", addKeyword);
 
   els.keywordList.addEventListener("click", (event) => {
@@ -1038,6 +1043,42 @@ function addKeyword(event) {
   els.keywordForm.reset();
   render();
   showToast("검색어를 추가했습니다.");
+}
+
+async function addProgram(event) {
+  event.preventDefault();
+  if (state.role !== "admin") return;
+
+  const name = els.newProgramName.value.trim();
+  const category = els.newProgramCategory.value.trim() || "기타";
+  const goal = els.newProgramGoal.value.trim();
+  if (!name) return;
+
+  if (state.programs.some((program) => normalize(program.name) === normalize(name))) {
+    showToast("이미 있는 사업명입니다.");
+    return;
+  }
+
+  const program = {
+    id: makeId("program"),
+    year: DEFAULT_YEAR,
+    name,
+    category,
+    goal: goal || "관리자 수동 추가",
+    changeGoal: "",
+    indicators: "",
+    owners: "",
+    partners: "관리자 입력",
+    active: true
+  };
+
+  state.programs = [program, ...state.programs];
+  savePrograms();
+  els.programForm.reset();
+  resetArticlePage();
+  render();
+  showToast("사업을 추가했습니다.");
+  await persistProgram(program);
 }
 
 function toggleKeyword(id) {

@@ -1032,6 +1032,11 @@ td.attention-cell {
   font-size: 13px;
 }
 
+.program-form {
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
 .keyword-row,
 .program-row {
   display: grid;

@@ -254,6 +254,28 @@
 
           <section class="admin-section">
             <h3>사업 목록</h3>
+            <form id="programForm" class="admin-form program-form">
+              <label class="wide">
+                <span>사업명</span>
+                <input id="newProgramName" required placeholder="예: 신규 캠페인 또는 정책 대응 사업" />
+              </label>
+              <label>
+                <span>분류</span>
+                <select id="newProgramCategory">
+                  <option value="생태도시">생태도시</option>
+                  <option value="기후행동">기후행동</option>
+                  <option value="자원순환">자원순환</option>
+                  <option value="시민참여">시민참여</option>
+                  <option value="모금">모금</option>
+                  <option value="기타">기타</option>
+                </select>
+              </label>
+              <label>
+                <span>설명</span>
+                <input id="newProgramGoal" placeholder="분류 기준 또는 메모" />
+              </label>
+              <button class="button secondary wide" type="submit">사업 추가</button>
+            </form>
             <div id="programList" class="program-admin-list"></div>
           </section>
 
