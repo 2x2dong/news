@@ -79,6 +79,16 @@ let state = {
   },
   pagination: {
     page: 1
+  },
+  sort: {
+    date: "desc"
+  },
+  collection: {
+    isRunning: false,
+    status: "idle",
+    title: "",
+    message: "",
+    detail: ""
   }
 };
 
@@ -106,12 +116,18 @@ function bindElements() {
     "keywordBars",
     "articleTable",
     "articlePagination",
+    "sortDateButton",
     "resultCount",
     "detailPanel",
     "detailTitle",
     "detailMeta",
     "detailSummary",
     "detailActions",
+    "collectionStatus",
+    "collectionStatusTitle",
+    "collectionStatusMessage",
+    "collectionStatusDetail",
+    "collectionStatusClose",
     "toast",
     "adminLoginForm",
     "adminLoginStatus",
@@ -191,6 +207,8 @@ function bindEvents() {
   els.copyViewerLinkButton.addEventListener("click", copyViewerLink);
   els.loadSheetsButton.addEventListener("click", loadSheetsSnapshot);
   els.fetchNewsButton.addEventListener("click", fetchNews);
+  els.sortDateButton.addEventListener("click", toggleDateSort);
+  els.collectionStatusClose.addEventListener("click", dismissCollectionStatus);
   els.syncSheetsButton.addEventListener("click", syncSheets);
   els.articleForm.addEventListener("submit", addArticle);
   els.planForm.addEventListener("submit", importPlan);
@@ -220,6 +238,7 @@ function render() {
   renderProgramManagement();
   renderKeywordManagement();
   renderPlanSummary();
+  renderCollectionStatus();
   renderArticles();
 }
 
@@ -243,7 +262,7 @@ function renderIntegrationStatus() {
   const hasSheet = Boolean(APP_CONFIG.googleSheetUrl);
   const schedule = (APP_CONFIG.collectionTimes || []).join(", ") || "09:00, 18:00";
 
-  els.syncStatus.textContent = hasEndpoint ? "Google Sheets 연결 준비" : "로컬 검토 모드";
+  if (els.syncStatus) els.syncStatus.textContent = hasEndpoint ? "Google Sheets 연결 준비" : "로컬 검토 모드";
   els.collectionSchedule.textContent = schedule;
   els.sheetLink.innerHTML = hasSheet
     ? `<a href="${escapeAttr(APP_CONFIG.googleSheetUrl)}" target="_blank" rel="noreferrer">Google Sheets 열기</a>`
@@ -251,6 +270,7 @@ function renderIntegrationStatus() {
 }
 
 function renderKeywordChips() {
+  if (!els.keywordChips) return;
   els.keywordChips.innerHTML = getActiveKeywords()
     .map((keyword) => `<span class="chip">${escapeHtml(keyword.keyword)}</span>`)
     .join("");
@@ -447,6 +467,35 @@ function renderPlanSummary() {
   `;
 }
 
+function renderCollectionStatus() {
+  const isVisible = state.collection.status !== "idle";
+  els.collectionStatus.hidden = !isVisible;
+  els.collectionStatus.dataset.status = state.collection.status;
+  els.collectionStatusTitle.textContent = state.collection.title || "기사 수집";
+  els.collectionStatusMessage.textContent = state.collection.message || "";
+  els.collectionStatusDetail.textContent = state.collection.detail || "";
+  els.collectionStatusClose.hidden = state.collection.isRunning;
+
+  els.fetchNewsButton.disabled = state.collection.isRunning;
+  els.fetchNewsButton.textContent = state.collection.isRunning ? "수집 중..." : "기사 수동 수집";
+  els.fetchNewsButton.setAttribute("aria-busy", state.collection.isRunning ? "true" : "false");
+}
+
+function setCollectionStatus(nextState) {
+  state.collection = { ...state.collection, ...nextState };
+  renderCollectionStatus();
+}
+
+function dismissCollectionStatus() {
+  if (state.collection.isRunning) return;
+  setCollectionStatus({
+    status: "idle",
+    title: "",
+    message: "",
+    detail: ""
+  });
+}
+
 function renderArticles() {
   const filtered = getFilteredArticles();
   const totalPages = Math.max(1, Math.ceil(filtered.length / ARTICLE_PAGE_SIZE));
@@ -459,6 +508,7 @@ function renderArticles() {
     ? `${filtered.length}건 중 ${startIndex + 1}-${endIndex}건 표시 · ${state.pagination.page}/${totalPages}쪽`
     : "0건 표시 중";
   els.articleTable.innerHTML = pageArticles.map(renderArticleRow).join("");
+  renderSortHeader();
   renderArticlePagination(filtered.length, totalPages);
 
   els.articleTable.querySelectorAll("[data-select]").forEach((button) => {
@@ -546,6 +596,19 @@ function resetArticlePage() {
   state.pagination.page = 1;
 }
 
+function toggleDateSort() {
+  state.sort.date = state.sort.date === "desc" ? "asc" : "desc";
+  resetArticlePage();
+  renderArticles();
+}
+
+function renderSortHeader() {
+  const isDesc = state.sort.date === "desc";
+  els.sortDateButton.textContent = isDesc ? "일시 ↓" : "일시 ↑";
+  els.sortDateButton.setAttribute("aria-label", isDesc ? "현재 최신순입니다. 오래된 순으로 바꾸기" : "현재 오래된 순입니다. 최신순으로 바꾸기");
+  els.sortDateButton.title = isDesc ? "최신순으로 정렬 중" : "오래된 순으로 정렬 중";
+}
+
 function renderArticleRow(article) {
   const selected = article.id === state.selectedId ? " selected" : "";
   const duplicate = isDuplicateWithinSource(article);
@@ -611,7 +674,9 @@ function renderArticleRow(article) {
         </div>
       </td>
       <td class="source-cell">
-        <strong>${escapeHtml(article.source)}</strong><br />
+        <strong>${escapeHtml(article.source)}</strong>
+      </td>
+      <td class="date-cell">
         <span>${formatDate(article.publishedAt)}</span>
       </td>
       <td>
@@ -699,7 +764,21 @@ function getFilteredArticles() {
       if (state.filters.status === "duplicate") return isDuplicateWithinSource(article);
       return true;
     })
-    .sort((a, b) => b.publishedAt.localeCompare(a.publishedAt));
+    .sort(compareArticlesByDate);
+}
+
+function compareArticlesByDate(a, b) {
+  const left = getArticleSortTime(a);
+  const right = getArticleSortTime(b);
+  const direction = state.sort.date === "asc" ? 1 : -1;
+  if (left !== right) return (left - right) * direction;
+  return String(a.title || "").localeCompare(String(b.title || ""), "ko");
+}
+
+function getArticleSortTime(article) {
+  const value = String(article && article.publishedAt || "");
+  const time = new Date(value).getTime();
+  return Number.isNaN(time) ? 0 : time;
 }
 
 function updateArticle(id, changes) {
@@ -946,10 +1025,23 @@ async function copyViewerLink() {
 
 async function fetchNews() {
   if (state.role !== "admin") return;
+  if (state.collection.isRunning) {
+    showToast("기사 수집이 이미 진행 중입니다.");
+    return;
+  }
   if (!APP_CONFIG.appsScriptEndpoint || !getAdminPassword()) {
     showToast("관리자 로그인 후 수동 수집할 수 있습니다.");
     return;
   }
+
+  const startedAt = new Date();
+  setCollectionStatus({
+    isRunning: true,
+    status: "running",
+    title: "기사 수집 중",
+    message: "뉴스 검색, 중복 확인, 사업 분류를 진행하고 있습니다.",
+    detail: "검색어가 많으면 몇 분 정도 걸릴 수 있습니다. 완료될 때까지 버튼을 다시 누를 수 없습니다."
+  });
 
   try {
     showToast("기사 후보를 수집하고 있습니다.");
@@ -961,8 +1053,24 @@ async function fetchNews() {
     const result = await response.json();
     if (!response.ok || !result.ok) throw new Error(result.error || "fetch failed");
     applySheetsSnapshot(result.sheets || {});
-    showToast(`기사 후보 ${result.itemsFound}건 확인, ${result.itemsAdded}건 추가, ${result.itemsUpdated || 0}건 갱신했습니다.`);
+    const seconds = Math.max(1, Math.round((Date.now() - startedAt.getTime()) / 1000));
+    const summary = `기사 후보 ${result.itemsFound}건 확인, ${result.itemsAdded}건 추가, ${result.itemsUpdated || 0}건 갱신했습니다.`;
+    setCollectionStatus({
+      isRunning: false,
+      status: "success",
+      title: "수집 완료",
+      message: summary,
+      detail: `${seconds}초 동안 수집을 진행했습니다. 목록은 최신 데이터로 갱신되었습니다.`
+    });
+    showToast(summary);
   } catch (error) {
+    setCollectionStatus({
+      isRunning: false,
+      status: "error",
+      title: "수집 실패",
+      message: "기사 수동 수집에 실패했습니다.",
+      detail: "잠시 뒤 다시 시도하거나 Google Apps Script 실행 기록을 확인해주세요."
+    });
     showToast("기사 수동 수집에 실패했습니다.");
   }
 }

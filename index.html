@@ -70,20 +70,8 @@
                 <dd>서울환경연합 전체 사업과 캠페인</dd>
               </div>
               <div>
-                <dt>저장소</dt>
-                <dd id="syncStatus">로컬 검토 모드</dd>
-              </div>
-              <div>
-                <dt>키워드</dt>
-                <dd id="keywordChips" class="chip-list"></dd>
-              </div>
-              <div>
                 <dt>검색 기간</dt>
                 <dd>2026년 1월 1일 이후 공개 언론사 기사</dd>
-              </div>
-              <div>
-                <dt>검토 기준</dt>
-                <dd>비언론사 출처 제외, 같은 언론사 안의 중복만 의심 처리, 자동판정 보정</dd>
               </div>
             </dl>
           </section>
@@ -170,21 +158,6 @@
             </details>
           </div>
 
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>기사</th>
-                  <th>출처</th>
-                  <th>사업/품질</th>
-                  <th>검토</th>
-                </tr>
-              </thead>
-              <tbody id="articleTable"></tbody>
-            </table>
-          </div>
-          <nav id="articlePagination" class="pagination" aria-label="기사 페이지"></nav>
-
           <section class="detail-panel" id="detailPanel" aria-live="polite">
             <div>
               <p class="eyebrow">선택한 기사</p>
@@ -196,6 +169,24 @@
             </p>
             <div id="detailActions" class="detail-actions"></div>
           </section>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>기사</th>
+                  <th>출처</th>
+                  <th>
+                    <button class="sort-header" id="sortDateButton" type="button" aria-label="일시 최신순 정렬">일시 ↓</button>
+                  </th>
+                  <th>사업/품질</th>
+                  <th>검토</th>
+                </tr>
+              </thead>
+              <tbody id="articleTable"></tbody>
+            </table>
+          </div>
+          <nav id="articlePagination" class="pagination" aria-label="기사 페이지"></nav>
         </section>
       </section>
 
@@ -291,6 +282,17 @@
       </section>
     </main>
 
+    <aside class="collection-status" id="collectionStatus" role="status" aria-live="polite" hidden>
+      <div class="collection-status-head">
+        <span class="collection-spinner" aria-hidden="true"></span>
+        <div>
+          <strong id="collectionStatusTitle">기사 수집</strong>
+          <p id="collectionStatusMessage">대기 중입니다.</p>
+        </div>
+        <button class="collection-close" id="collectionStatusClose" type="button" aria-label="수집 상태 닫기">×</button>
+      </div>
+      <p id="collectionStatusDetail" class="collection-status-detail"></p>
+    </aside>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
   </body>
 </html>
