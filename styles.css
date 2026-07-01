@@ -1061,7 +1061,19 @@ td.attention-cell {
 }
 
 .program-row {
-  grid-template-columns: minmax(120px, 1fr) 72px 82px;
+  grid-template-columns: minmax(120px, 1fr) minmax(116px, 150px) 72px 82px;
+}
+
+.program-category-select {
+  width: 100%;
+  min-height: 36px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 700;
+  padding: 6px 8px;
 }
 
 .keyword-toggle {

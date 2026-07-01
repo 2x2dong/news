@@ -309,6 +309,12 @@ function bindEvents() {
     if (!button) return;
     toggleProgram(button.dataset.programToggle);
   });
+
+  els.programList.addEventListener("change", (event) => {
+    const select = event.target.closest("[data-program-category]");
+    if (!select) return;
+    updateProgramCategory(select.dataset.programCategory, select.value);
+  });
 }
 
 function render() {
@@ -579,8 +585,20 @@ function renderProgramManagement() {
         <div class="program-row">
           <div>
             <strong>${escapeHtml(program.name)}</strong>
-            <small>${escapeHtml(program.category || "기타")} · ${escapeHtml(program.goal || "분류 기준")}</small>
+            <small>${escapeHtml(program.goal || "분류 기준")}</small>
           </div>
+          <select class="program-category-select" data-program-category="${escapeAttr(program.id)}" aria-label="${escapeAttr(
+            `${program.name} 사업분류`
+          )}">
+            ${getProgramCategoryOptions(program.category)
+              .map(
+                (category) =>
+                  `<option value="${escapeAttr(category)}" ${category === (program.category || "기타") ? "selected" : ""}>${escapeHtml(
+                    category
+                  )}</option>`
+              )
+              .join("")}
+          </select>
           <span class="chip neutral">${escapeHtml(program.year || DEFAULT_YEAR)}</span>
           <button class="keyword-toggle ${program.active === false ? "is-off" : ""}" type="button" data-program-toggle="${escapeAttr(
             program.id
@@ -591,6 +609,12 @@ function renderProgramManagement() {
       `
     )
     .join("");
+}
+
+function getProgramCategoryOptions(currentCategory) {
+  const categories = new Set(DEFAULT_CATEGORIES);
+  if (currentCategory) categories.add(currentCategory);
+  return [...categories].sort((a, b) => getCategorySortIndex(a) - getCategorySortIndex(b) || a.localeCompare(b, "ko"));
 }
 
 function renderKeywordBars() {
@@ -1192,6 +1216,45 @@ async function toggleProgram(id) {
   await persistProgram(updatedProgram || findProgram(id));
 }
 
+async function updateProgramCategory(id, category) {
+  if (state.role !== "admin") return;
+  const program = state.programs.find((item) => item.id === id);
+  if (!program) return;
+
+  const nextCategory = category || "기타";
+  if ((program.category || "기타") === nextCategory) return;
+
+  const updatedAt = new Date().toISOString();
+  let updatedProgram = null;
+  const programNameKey = normalize(program.name);
+  const affectedArticles = [];
+
+  state.programs = state.programs.map((item) =>
+    item.id === id ? (updatedProgram = { ...item, category: nextCategory, updatedAt }) : item
+  );
+
+  state.articles = state.articles.map((article) => {
+    const matchesProgram = article.matchedProgram === id || (programNameKey && normalize(article.programName) === programNameKey);
+    if (!matchesProgram) return article;
+
+    const updatedArticle = {
+      ...article,
+      programCategory: nextCategory,
+      manualFields: mergeManualFields(article.manualFields, ["program"]),
+      manualUpdatedAt: updatedAt
+    };
+    affectedArticles.push(updatedArticle);
+    return updatedArticle;
+  });
+
+  savePrograms();
+  saveArticles();
+  render();
+  showToast(affectedArticles.length ? `사업분류와 연결 기사 ${affectedArticles.length}건을 반영했습니다.` : "사업분류를 반영했습니다.");
+  await persistProgram(updatedProgram || findProgram(id));
+  await persistArticlesSilently(affectedArticles);
+}
+
 async function adminLogin(event) {
   event.preventDefault();
   const password = els.adminPasswordInput.value.trim();
@@ -1466,6 +1529,13 @@ async function persistArticle(article, options = {}) {
     if (!response.ok || !result.ok) throw new Error(result.error || "article sync failed");
   } catch (error) {
     if (!options.silent) showToast("검토값은 화면에 반영됐고, 구글시트 저장을 누르면 저장됩니다.");
+  }
+}
+
+async function persistArticlesSilently(articles) {
+  if (!articles.length || !APP_CONFIG.appsScriptEndpoint || !getAdminPassword()) return;
+  for (const article of articles.slice(0, 200)) {
+    await persistArticle(article, { silent: true });
   }
 }
 
