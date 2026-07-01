@@ -111,6 +111,7 @@ Google Sheets는 아래 탭을 사용합니다.
 
 ## 문서
 
+- [내부 활동가 사용 가이드](./docs/internal-user-guide.md)
 - [뉴스 대시보드 명세](./docs/technical-spec.md)
 - [Vercel + Google Sheets Product Plan](./docs/vercel-google-sheets-product-plan.md)
 - [RSS News Archive Dashboard Plan](./docs/news-dashboard-plan.md)
