@@ -1061,7 +1061,11 @@ td.attention-cell {
 }
 
 .program-row {
-  grid-template-columns: minmax(120px, 1fr) minmax(116px, 150px) 72px 82px;
+  grid-template-columns: minmax(0, 1fr) minmax(104px, 132px) 76px;
+}
+
+.program-row > div {
+  min-width: 0;
 }
 
 .program-category-select {

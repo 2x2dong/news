@@ -599,7 +599,6 @@ function renderProgramManagement() {
               )
               .join("")}
           </select>
-          <span class="chip neutral">${escapeHtml(program.year || DEFAULT_YEAR)}</span>
           <button class="keyword-toggle ${program.active === false ? "is-off" : ""}" type="button" data-program-toggle="${escapeAttr(
             program.id
           )}">
